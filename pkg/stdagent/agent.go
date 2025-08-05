@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/fulcrumproject/agent-lib-go/pkg/agent"
-	"github.com/fulcrumproject/agent-lib-go/pkg/fulcrumcli"
 )
 
 // Default intervals
@@ -19,7 +18,7 @@ const (
 )
 
 type Agent[P any, R any] struct {
-	client                fulcrumcli.Client[P]
+	client                FulcrumClient[P]
 	heartbeatInterval     time.Duration
 	heartbeatHandler      agent.HeartbeatHandler
 	jobPollInterval       time.Duration
@@ -42,7 +41,7 @@ type Agent[P any, R any] struct {
 	agentID   string
 }
 
-func New[P any, R any](client fulcrumcli.Client[P], options ...AgentOption[P, R]) (*Agent[P, R], error) {
+func New[P any, R any](client FulcrumClient[P], options ...AgentOption[P, R]) (*Agent[P, R], error) {
 	agent := &Agent[P, R]{
 		client:                client,
 		jobHandlers:           make(map[agent.JobAction]agent.JobHandler[P, R]),

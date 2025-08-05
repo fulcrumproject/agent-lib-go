@@ -1,0 +1,18 @@
+template: testify
+packages:
+  github.com/fulcrumproject/agent-lib-go/pkg/fulcrumcli:
+    config:
+      filename: mocks_test.go
+      dir: "{{.InterfaceDir}}"
+      pkgname: "fulcrumcli"
+      structname: "Mock{{.InterfaceName}}"
+    interfaces:
+      httpClient:
+  github.com/fulcrumproject/agent-lib-go/pkg/stdagent:
+    config:
+      filename: mocks_test.go
+      dir: "{{.InterfaceDir}}"
+      pkgname: "stdagent"
+      structname: "Mock{{.InterfaceName}}"
+    interfaces:
+      FulcrumClient:

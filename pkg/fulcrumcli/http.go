@@ -12,10 +12,14 @@ import (
 	"github.com/fulcrumproject/agent-lib-go/pkg/agent"
 )
 
+type httpClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
 // HTTPClient implements FulcrumClient interface using HTTP
 type HTTPClient[P any] struct {
 	baseURL    string
-	httpClient *http.Client
+	httpClient httpClient
 	token      string // Agent authentication token
 }
 
@@ -202,7 +206,6 @@ func (c *HTTPClient[P]) post(endpoint string, body []byte) (*http.Response, erro
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.token)
-
 	req.Header.Set("Content-Type", "application/json")
 
 	return c.httpClient.Do(req)
