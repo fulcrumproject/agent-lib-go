@@ -18,11 +18,12 @@ type HTTPClient[P, C any] struct {
 
 // NewHTTPClient creates a new Fulcrum API client
 func NewHTTPClient[P, C any](baseURL string, token string) *HTTPClient[P, C] {
-	client := resty.New()
-	client.SetBaseURL(baseURL)
-	client.SetTimeout(30 * time.Second)
-	client.SetHeader("Content-Type", "application/json")
-	client.SetAuthToken(token)
+	client := resty.New().
+		SetBaseURL(baseURL).
+		SetTimeout(30*time.Second).
+		SetHeader("Content-Type", "application/json").
+		SetAuthToken(token).
+		SetDisableWarn(true)
 
 	return &HTTPClient[P, C]{
 		client: client,
