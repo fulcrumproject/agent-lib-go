@@ -34,11 +34,13 @@ type Agent[P any, R any] struct {
 	}
 
 	// Runtime state
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
-	startTime time.Time
-	connected bool
-	agentID   string
+	stopCh        chan struct{}
+	jobPollStopCh chan struct{}
+	wg            sync.WaitGroup
+	startTime     time.Time
+	status        agent.AgentStatus
+	statusMu      sync.RWMutex
+	agentID       string
 }
 
 func New[P any, R any](client FulcrumClient[P], options ...AgentOption[P, R]) (*Agent[P, R], error) {
@@ -49,7 +51,8 @@ func New[P any, R any](client FulcrumClient[P], options ...AgentOption[P, R]) (*
 		jobPollInterval:       DefaultJobPollInterval,
 		metricsReportInterval: DefaultMetricsReportInterval,
 		stopCh:                make(chan struct{}),
-		connected:             false,
+		jobPollStopCh:         make(chan struct{}),
+		status:                agent.AgentStatusNew,
 	}
 
 	// Apply options
@@ -99,7 +102,7 @@ func (a *Agent[P, R]) Run(ctx context.Context) error {
 	if err := a.client.UpdateAgentStatus(agent.AgentStatusConnected); err != nil {
 		return fmt.Errorf("failed to update agent status: %w", err)
 	}
-	a.connected = true
+	a.setStatus(agent.AgentStatusConnected)
 
 	log.Printf("Agent status updated to Connected")
 
@@ -143,11 +146,11 @@ func (a *Agent[P, R]) Shutdown(ctx context.Context) error {
 	}
 
 	// Update agent status to Disconnected
-	if a.connected {
+	if a.GetStatus() != agent.AgentStatusNew {
 		if err := a.client.UpdateAgentStatus(agent.AgentStatusDisconnected); err != nil {
 			return fmt.Errorf("failed to update agent status on shutdown: %w", err)
 		}
-		a.connected = false
+		a.setStatus(agent.AgentStatusDisconnected)
 		log.Println("Agent status updated to Disconnected")
 	}
 
@@ -165,18 +168,45 @@ func (a *Agent[P, R]) heartbeat(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
+			currentStatus := a.GetStatus()
+			heartbeatError := false
+
 			// Call custom heartbeat handler if provided
 			if a.heartbeatHandler != nil {
 				if err := a.heartbeatHandler(ctx); err != nil {
 					log.Printf("Heartbeat handler error: %v", err)
+					heartbeatError = true
 				}
 			}
 
-			// Update agent status to maintain connection
-			if err := a.client.UpdateAgentStatus(agent.AgentStatusConnected); err != nil {
-				log.Printf("Failed to update agent status: %v", err)
+			// Handle heartbeat failure
+			if heartbeatError {
+				if currentStatus != agent.AgentStatusError {
+					log.Printf("Setting agent status to Error due to heartbeat failure")
+					// Update status to Error
+					if err := a.client.UpdateAgentStatus(agent.AgentStatusError); err != nil {
+						log.Printf("Failed to update agent status to Error: %v", err)
+					}
+					a.setStatus(agent.AgentStatusError)
+
+					// Stop job polling
+					a.stopJobPolling()
+				}
 			} else {
-				log.Printf("Heartbeat: Agent status updated")
+				// Heartbeat succeeded
+				if currentStatus == agent.AgentStatusError {
+					log.Printf("Heartbeat recovered, setting agent status back to Connected")
+					// Restart job polling
+					a.restartJobPolling(ctx)
+				}
+
+				// Update agent status to maintain connection
+				if err := a.client.UpdateAgentStatus(agent.AgentStatusConnected); err != nil {
+					log.Printf("Failed to update agent status: %v", err)
+				} else {
+					a.setStatus(agent.AgentStatusConnected)
+					log.Printf("Heartbeat: Agent status updated to Connected")
+				}
 			}
 		case <-a.stopCh:
 			return
@@ -230,9 +260,15 @@ func (a *Agent[P, R]) pollJobs(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			if err := a.pollAndProcessJobs(ctx); err != nil {
-				log.Printf("Error polling jobs: %v", err)
+			// Only poll jobs if status is Connected
+			if a.GetStatus() == agent.AgentStatusConnected {
+				if err := a.pollAndProcessJobs(ctx); err != nil {
+					log.Printf("Error polling jobs: %v", err)
+				}
 			}
+		case <-a.jobPollStopCh:
+			log.Printf("Job polling stopped due to status change")
+			return
 		case <-a.stopCh:
 			return
 		case <-ctx.Done():
@@ -309,4 +345,39 @@ func (a *Agent[P, R]) GetUptime() time.Duration {
 // GetJobStats returns the job processing statistics
 func (a *Agent[P, R]) GetJobStats() (processed, succeeded, failed int) {
 	return a.jobStats.processed, a.jobStats.succeeded, a.jobStats.failed
+}
+
+// GetStatus returns the current agent status
+func (a *Agent[P, R]) GetStatus() agent.AgentStatus {
+	a.statusMu.RLock()
+	defer a.statusMu.RUnlock()
+	return a.status
+}
+
+// setStatus sets the agent status (thread-safe)
+func (a *Agent[P, R]) setStatus(status agent.AgentStatus) {
+	a.statusMu.Lock()
+	defer a.statusMu.Unlock()
+	a.status = status
+}
+
+// stopJobPolling stops the job polling goroutine
+func (a *Agent[P, R]) stopJobPolling() {
+	select {
+	case a.jobPollStopCh <- struct{}{}:
+	default:
+		// Channel might be full or closed, ignore
+	}
+}
+
+// restartJobPolling restarts the job polling goroutine
+func (a *Agent[P, R]) restartJobPolling(ctx context.Context) {
+	// Create a new stop channel for the new polling goroutine
+	a.jobPollStopCh = make(chan struct{})
+
+	// Start job polling if we have handlers
+	if len(a.jobHandlers) > 0 {
+		a.wg.Add(1)
+		go a.pollJobs(ctx)
+	}
 }

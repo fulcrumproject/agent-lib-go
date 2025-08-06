@@ -20,6 +20,16 @@ type TestResource struct {
 	URL string `json:"url"`
 }
 
+// TestAgentInterface verifies that Agent implements the agent.Agent interface
+func TestAgentInterface(t *testing.T) {
+	mockClient := NewMockFulcrumClient[TestPayload](t)
+	stdAgent, err := New[TestPayload, TestResource](mockClient)
+	assert.NoError(t, err)
+
+	// Verify that the standard agent implements the agent.Agent interface
+	var _ agent.Agent[TestPayload, TestResource] = stdAgent
+}
+
 func TestNew(t *testing.T) {
 	mockClient := NewMockFulcrumClient[TestPayload](t)
 
@@ -124,7 +134,7 @@ func TestAgent_Run(t *testing.T) {
 		err = stdAgent.Run(ctx)
 		assert.NoError(t, err)
 		assert.Equal(t, "test-agent-123", stdAgent.GetAgentID())
-		assert.True(t, stdAgent.connected)
+		assert.Equal(t, agent.AgentStatusConnected, stdAgent.GetStatus())
 	})
 
 	t.Run("fails when GetAgentInfo returns error", func(t *testing.T) {
@@ -181,7 +191,7 @@ func TestAgent_Shutdown(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Simulate connected state
-		stdAgent.connected = true
+		stdAgent.setStatus(agent.AgentStatusConnected)
 		stdAgent.agentID = "test-agent-123"
 
 		mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusDisconnected).Return(nil).Once()
@@ -189,7 +199,7 @@ func TestAgent_Shutdown(t *testing.T) {
 		ctx := context.Background()
 		err = stdAgent.Shutdown(ctx)
 		assert.NoError(t, err)
-		assert.False(t, stdAgent.connected)
+		assert.Equal(t, agent.AgentStatusDisconnected, stdAgent.GetStatus())
 	})
 
 	t.Run("shutdown when not connected", func(t *testing.T) {
@@ -208,7 +218,7 @@ func TestAgent_Shutdown(t *testing.T) {
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
-		stdAgent.connected = true
+		stdAgent.setStatus(agent.AgentStatusConnected)
 		mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusDisconnected).Return(assert.AnError).Once()
 
 		ctx := context.Background()
