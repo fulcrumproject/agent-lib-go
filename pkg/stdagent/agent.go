@@ -3,7 +3,7 @@ package stdagent
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -96,7 +96,7 @@ func (a *Agent[P, R]) Run(ctx context.Context) error {
 	}
 	a.agentID = id
 
-	log.Printf("Agent authenticated with ID: %s", id)
+	slog.Info("Agent authenticated", "id", id)
 
 	// Update agent status to Connected
 	if err := a.client.UpdateAgentStatus(agent.AgentStatusConnected); err != nil {
@@ -104,7 +104,7 @@ func (a *Agent[P, R]) Run(ctx context.Context) error {
 	}
 	a.setStatus(agent.AgentStatusConnected)
 
-	log.Printf("Agent status updated to Connected")
+	slog.Info("Agent status updated to Connected")
 
 	// Start background goroutines
 	if a.heartbeatHandler != nil {
@@ -151,10 +151,10 @@ func (a *Agent[P, R]) Shutdown(ctx context.Context) error {
 			return fmt.Errorf("failed to update agent status on shutdown: %w", err)
 		}
 		a.setStatus(agent.AgentStatusDisconnected)
-		log.Println("Agent status updated to Disconnected")
+		slog.Info("Agent status updated to Disconnected")
 	}
 
-	log.Println("Agent shut down successfully")
+	slog.Info("Agent shut down successfully")
 	return nil
 }
 
@@ -174,7 +174,7 @@ func (a *Agent[P, R]) heartbeat(ctx context.Context) {
 			// Call custom heartbeat handler if provided
 			if a.heartbeatHandler != nil {
 				if err := a.heartbeatHandler(ctx); err != nil {
-					log.Printf("Heartbeat handler error: %v", err)
+					slog.Error("Heartbeat handler error", "error", err)
 					heartbeatError = true
 				}
 			}
@@ -182,10 +182,10 @@ func (a *Agent[P, R]) heartbeat(ctx context.Context) {
 			// Handle heartbeat failure
 			if heartbeatError {
 				if currentStatus != agent.AgentStatusError {
-					log.Printf("Setting agent status to Error due to heartbeat failure")
+					slog.Info("Setting agent status to Error due to heartbeat failure")
 					// Update status to Error
 					if err := a.client.UpdateAgentStatus(agent.AgentStatusError); err != nil {
-						log.Printf("Failed to update agent status to Error: %v", err)
+						slog.Error("Failed to update agent status to Error", "error", err)
 					}
 					a.setStatus(agent.AgentStatusError)
 
@@ -195,17 +195,17 @@ func (a *Agent[P, R]) heartbeat(ctx context.Context) {
 			} else {
 				// Heartbeat succeeded
 				if currentStatus == agent.AgentStatusError {
-					log.Printf("Heartbeat recovered, setting agent status back to Connected")
+					slog.Info("Heartbeat recovered, setting agent status back to Connected")
 					// Restart job polling
 					a.restartJobPolling(ctx)
 				}
 
 				// Update agent status to maintain connection
 				if err := a.client.UpdateAgentStatus(agent.AgentStatusConnected); err != nil {
-					log.Printf("Failed to update agent status: %v", err)
+					slog.Error("Failed to update agent status", "error", err)
 				} else {
 					a.setStatus(agent.AgentStatusConnected)
-					log.Printf("Heartbeat: Agent status updated to Connected")
+					slog.Info("Heartbeat: Agent status updated to Connected")
 				}
 			}
 		case <-a.stopCh:
@@ -228,19 +228,19 @@ func (a *Agent[P, R]) reportMetrics(ctx context.Context) {
 		case <-ticker.C:
 			metrics, err := a.metricsReporter(ctx)
 			if err != nil {
-				log.Printf("Error collecting metrics: %v", err)
+				slog.Error("Error collecting metrics", "error", err)
 				continue
 			}
 
 			// Report each metric to the client
 			for _, metric := range metrics {
 				if err := a.client.ReportMetric(&metric); err != nil {
-					log.Printf("Error reporting metric: %v", err)
+					slog.Error("Error reporting metric", "error", err)
 				}
 			}
 
 			if len(metrics) > 0 {
-				log.Printf("Reported %d metrics", len(metrics))
+				slog.Info("Reported metrics", "count", len(metrics))
 			}
 		case <-a.stopCh:
 			return
@@ -263,11 +263,11 @@ func (a *Agent[P, R]) pollJobs(ctx context.Context) {
 			// Only poll jobs if status is Connected
 			if a.GetStatus() == agent.AgentStatusConnected {
 				if err := a.pollAndProcessJobs(ctx); err != nil {
-					log.Printf("Error polling jobs: %v", err)
+					slog.Error("Error polling jobs", "error", err)
 				}
 			}
 		case <-a.jobPollStopCh:
-			log.Printf("Job polling stopped due to status change")
+			slog.Info("Job polling stopped due to status change")
 			return
 		case <-a.stopCh:
 			return
@@ -286,7 +286,7 @@ func (a *Agent[P, R]) pollAndProcessJobs(ctx context.Context) error {
 	}
 
 	if len(jobs) == 0 {
-		log.Printf("Pending jobs not found")
+		slog.Info("Pending jobs not found")
 		return nil
 	}
 
@@ -297,36 +297,36 @@ func (a *Agent[P, R]) pollAndProcessJobs(ctx context.Context) error {
 	// Check if we have a handler for this job action
 	handler, ok := a.jobHandlers[job.Action]
 	if !ok {
-		log.Printf("No handler registered for job action: %s", job.Action)
+		slog.Warn("No handler registered for job action", "action", job.Action)
 		return nil
 	}
 
 	// Claim the job
 	if err := a.client.ClaimJob(job.ID); err != nil {
-		log.Printf("Failed to claim job %s: %v", job.ID, err)
+		slog.Error("Failed to claim job", "job_id", job.ID, "error", err)
 		return err
 	}
 
-	log.Printf("Processing job %s of type %s", job.ID, job.Action)
+	slog.Info("Processing job", "job_id", job.ID, "action", job.Action)
 
 	// Process the job using the registered handler
 	resp, err := handler(ctx, job)
 	if err != nil {
 		// Mark job as failed
-		log.Printf("Job %s failed: %v", job.ID, err)
+		slog.Error("Job failed", "job_id", job.ID, "error", err)
 		a.jobStats.failed++
 		if failErr := a.client.FailJob(job.ID, err.Error()); failErr != nil {
-			log.Printf("Failed to mark job %s as failed: %v", job.ID, failErr)
+			slog.Error("Failed to mark job as failed", "job_id", job.ID, "error", failErr)
 			return failErr
 		}
 	} else {
 		// Job succeeded
 		a.jobStats.succeeded++
 		if complErr := a.client.CompleteJob(job.ID, resp); complErr != nil {
-			log.Printf("Failed to mark job %s as completed: %v", job.ID, complErr)
+			slog.Error("Failed to mark job as completed", "job_id", job.ID, "error", complErr)
 			return complErr
 		}
-		log.Printf("Job %s completed successfully", job.ID)
+		slog.Info("Job completed successfully", "job_id", job.ID)
 	}
 
 	return nil
