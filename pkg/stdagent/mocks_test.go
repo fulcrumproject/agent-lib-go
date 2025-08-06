@@ -202,23 +202,23 @@ func (_c *MockFulcrumClient_FailJob_Call[P]) RunAndReturn(run func(jobID string,
 }
 
 // GetAgentInfo provides a mock function for the type MockFulcrumClient
-func (_mock *MockFulcrumClient[P]) GetAgentInfo() (map[string]any, error) {
+func (_mock *MockFulcrumClient[P]) GetAgentInfo() (*agent.AgentInfo, error) {
 	ret := _mock.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetAgentInfo")
 	}
 
-	var r0 map[string]any
+	var r0 *agent.AgentInfo
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func() (map[string]any, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func() (*agent.AgentInfo, error)); ok {
 		return returnFunc()
 	}
-	if returnFunc, ok := ret.Get(0).(func() map[string]any); ok {
+	if returnFunc, ok := ret.Get(0).(func() *agent.AgentInfo); ok {
 		r0 = returnFunc()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[string]any)
+			r0 = ret.Get(0).(*agent.AgentInfo)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func() error); ok {
@@ -246,12 +246,12 @@ func (_c *MockFulcrumClient_GetAgentInfo_Call[P]) Run(run func()) *MockFulcrumCl
 	return _c
 }
 
-func (_c *MockFulcrumClient_GetAgentInfo_Call[P]) Return(stringToV map[string]any, err error) *MockFulcrumClient_GetAgentInfo_Call[P] {
-	_c.Call.Return(stringToV, err)
+func (_c *MockFulcrumClient_GetAgentInfo_Call[P]) Return(agentInfo *agent.AgentInfo, err error) *MockFulcrumClient_GetAgentInfo_Call[P] {
+	_c.Call.Return(agentInfo, err)
 	return _c
 }
 
-func (_c *MockFulcrumClient_GetAgentInfo_Call[P]) RunAndReturn(run func() (map[string]any, error)) *MockFulcrumClient_GetAgentInfo_Call[P] {
+func (_c *MockFulcrumClient_GetAgentInfo_Call[P]) RunAndReturn(run func() (*agent.AgentInfo, error)) *MockFulcrumClient_GetAgentInfo_Call[P] {
 	_c.Call.Return(run)
 	return _c
 }

@@ -90,13 +90,12 @@ func (a *Agent[P, R]) Run(ctx context.Context) error {
 	}
 
 	// Extract agent ID from the response
-	id, ok := agentInfo["id"].(string)
-	if !ok {
-		return fmt.Errorf("invalid agent information received")
+	if agentInfo.ID == "" {
+		return fmt.Errorf("invalid agent information received: missing ID")
 	}
-	a.agentID = id
+	a.agentID = agentInfo.ID
 
-	slog.Info("Agent authenticated", "id", id)
+	slog.Info("Agent authenticated", "id", agentInfo.ID)
 
 	// Update agent status to Connected
 	if err := a.client.UpdateAgentStatus(agent.AgentStatusConnected); err != nil {

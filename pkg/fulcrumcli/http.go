@@ -1,96 +1,100 @@
 package fulcrumcli
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
-	"path"
+	"io"
 	"time"
 
 	"github.com/fulcrumproject/agent-lib-go/pkg/agent"
+	"resty.dev/v3"
 )
 
-type httpClient interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
-// HTTPClient implements FulcrumClient interface using HTTP
+// HTTPClient implements FulcrumClient interface using Resty v3
 type HTTPClient[P any] struct {
-	baseURL    string
-	httpClient httpClient
-	token      string // Agent authentication token
+	client *resty.Client
+	token  string // Agent authentication token
 }
 
 // NewHTTPClient creates a new Fulcrum API client
 func NewHTTPClient[P any](baseURL string, token string) *HTTPClient[P] {
+	client := resty.New()
+	client.SetBaseURL(baseURL)
+	client.SetTimeout(30 * time.Second)
+	client.SetHeader("Content-Type", "application/json")
+	client.SetAuthToken(token)
+
 	return &HTTPClient[P]{
-		baseURL: baseURL,
-		token:   token,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		client: client,
+		token:  token,
 	}
 }
 
 // UpdateAgentStatus updates the agent's status in Fulcrum Core
 func (c *HTTPClient[P]) UpdateAgentStatus(status agent.AgentStatus) error {
-	reqBody, err := json.Marshal(map[string]any{
-		"status": status,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to marshal status update request: %w", err)
-	}
+	resp, err := c.client.R().
+		SetBody(map[string]any{
+			"status": status,
+		}).
+		Put("/api/v1/agents/me/status")
 
-	resp, err := c.put("/api/v1/agents/me/status", reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to update agent status: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to update agent status, status: %d", resp.StatusCode)
+	if resp.IsError() {
+		return fmt.Errorf("failed to update agent status, status: %d", resp.StatusCode())
 	}
 
 	return nil
 }
 
 // GetAgentInfo retrieves the agent's information from Fulcrum Core
-func (c *HTTPClient[P]) GetAgentInfo() (map[string]any, error) {
-	resp, err := c.get("/api/v1/agents/me")
+func (c *HTTPClient[P]) GetAgentInfo() (*agent.AgentInfo, error) {
+	resp, err := c.client.R().
+		Get("/api/v1/agents/me")
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get agent info: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get agent info, status: %d", resp.StatusCode)
+	if resp.IsError() {
+		return nil, fmt.Errorf("failed to get agent info, status: %d", resp.StatusCode())
 	}
 
-	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var result agent.AgentInfo
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode agent info response: %w", err)
 	}
 
-	return result, nil
+	return &result, nil
 }
 
 // GetPendingJobs retrieves pending jobs for this agent
 func (c *HTTPClient[P]) GetPendingJobs() ([]*agent.Job[P], error) {
-	resp, err := c.get("/api/v1/jobs/pending")
+	resp, err := c.client.R().
+		Get("/api/v1/jobs/pending")
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get pending jobs: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to get pending jobs, status: %d", resp.StatusCode)
+	if resp.IsError() {
+		return nil, fmt.Errorf("failed to get pending jobs, status: %d", resp.StatusCode())
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	var jobs []*agent.Job[P]
-
-	if err := json.NewDecoder(resp.Body).Decode(&jobs); err != nil {
+	if err := json.Unmarshal(bodyBytes, &jobs); err != nil {
 		return nil, fmt.Errorf("failed to decode jobs response: %w", err)
 	}
 
@@ -99,14 +103,15 @@ func (c *HTTPClient[P]) GetPendingJobs() ([]*agent.Job[P], error) {
 
 // ClaimJob claims a job for processing
 func (c *HTTPClient[P]) ClaimJob(jobID string) error {
-	resp, err := c.post(fmt.Sprintf("/api/v1/jobs/%s/claim", jobID), nil)
+	resp, err := c.client.R().
+		Post(fmt.Sprintf("/api/v1/jobs/%s/claim", jobID))
+
 	if err != nil {
 		return fmt.Errorf("failed to claim job: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to claim job, status: %d", resp.StatusCode)
+	if resp.IsError() {
+		return fmt.Errorf("failed to claim job, status: %d", resp.StatusCode())
 	}
 
 	return nil
@@ -114,19 +119,16 @@ func (c *HTTPClient[P]) ClaimJob(jobID string) error {
 
 // CompleteJob marks a job as completed with results
 func (c *HTTPClient[P]) CompleteJob(jobID string, response any) error {
-	reqBody, err := json.Marshal(response)
-	if err != nil {
-		return fmt.Errorf("failed to marshal job completion request: %w", err)
-	}
+	resp, err := c.client.R().
+		SetBody(response).
+		Post(fmt.Sprintf("/api/v1/jobs/%s/complete", jobID))
 
-	resp, err := c.post(fmt.Sprintf("/api/v1/jobs/%s/complete", jobID), reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to complete job: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to complete job, status: %d", resp.StatusCode)
+	if resp.IsError() {
+		return fmt.Errorf("failed to complete job, status: %d", resp.StatusCode())
 	}
 
 	return nil
@@ -134,97 +136,36 @@ func (c *HTTPClient[P]) CompleteJob(jobID string, response any) error {
 
 // FailJob marks a job as failed with an error message
 func (c *HTTPClient[P]) FailJob(jobID string, errorMessage string) error {
-	reqBody, err := json.Marshal(map[string]any{
-		"errorMessage": errorMessage,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to marshal job failure request: %w", err)
-	}
+	resp, err := c.client.R().
+		SetBody(map[string]any{
+			"errorMessage": errorMessage,
+		}).
+		Post(fmt.Sprintf("/api/v1/jobs/%s/fail", jobID))
 
-	resp, err := c.post(fmt.Sprintf("/api/v1/jobs/%s/fail", jobID), reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to mark job as failed: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("failed to mark job as failed, status: %d", resp.StatusCode)
+	if resp.IsError() {
+		return fmt.Errorf("failed to mark job as failed, status: %d", resp.StatusCode())
 	}
 
 	return nil
 }
 
-// ReportMetrics sends collected metrics to Fulcrum Core
+// ReportMetric sends collected metrics to Fulcrum Core
 func (c *HTTPClient[P]) ReportMetric(metric *agent.MetricEntry) error {
-	reqBody, err := json.Marshal(metric)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metrics request: %w", err)
-	}
+	resp, err := c.client.R().
+		SetBody(metric).
+		Post("/api/v1/metric-entries")
 
-	resp, err := c.post("/api/v1/metric-entries", reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to report metrics: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("failed to report metrics, status: %d", resp.StatusCode)
+	if resp.IsError() {
+		return fmt.Errorf("failed to report metrics, status: %d", resp.StatusCode())
 	}
 
 	return nil
-}
-
-// Helper methods for HTTP requests
-func (c *HTTPClient[P]) get(endpoint string) (*http.Response, error) {
-	u, err := url.Parse(c.baseURL)
-	if err != nil {
-		return nil, err
-	}
-	u.Path = path.Join(u.Path, endpoint)
-
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	return c.httpClient.Do(req)
-}
-
-func (c *HTTPClient[P]) post(endpoint string, body []byte) (*http.Response, error) {
-	u, err := url.Parse(c.baseURL)
-	if err != nil {
-		return nil, err
-	}
-	u.Path = path.Join(u.Path, endpoint)
-
-	req, err := http.NewRequest(http.MethodPost, u.String(), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	return c.httpClient.Do(req)
-}
-
-func (c *HTTPClient[P]) put(endpoint string, body []byte) (*http.Response, error) {
-	u, err := url.Parse(c.baseURL)
-	if err != nil {
-		return nil, err
-	}
-	u.Path = path.Join(u.Path, endpoint)
-
-	req, err := http.NewRequest(http.MethodPut, u.String(), bytes.NewBuffer(body))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Content-Type", "application/json")
-
-	return c.httpClient.Do(req)
 }

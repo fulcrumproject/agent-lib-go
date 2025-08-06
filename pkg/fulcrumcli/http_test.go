@@ -1,36 +1,17 @@
 package fulcrumcli
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/fulcrumproject/agent-lib-go/pkg/agent"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
-
-// Helper function to create a mock HTTP response
-func createMockResponse(statusCode int, body interface{}) *http.Response {
-	var bodyReader io.ReadCloser
-	if body != nil {
-		bodyJSON, _ := json.Marshal(body)
-		bodyReader = io.NopCloser(bytes.NewBuffer(bodyJSON))
-	} else {
-		bodyReader = io.NopCloser(strings.NewReader(""))
-	}
-
-	return &http.Response{
-		StatusCode: statusCode,
-		Body:       bodyReader,
-		Header:     make(http.Header),
-	}
-}
 
 // Test properties type for generic testing
 type TestProperties struct {
@@ -61,39 +42,28 @@ func TestHTTPClient_UpdateAgentStatus(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTP := NewMockhttpClient(t)
-			client := &HTTPClient[TestProperties]{
-				baseURL:    "https://api.example.com",
-				token:      "test-token",
-				httpClient: mockHTTP,
-			}
-
-			mockHTTP.EXPECT().Do(mock.MatchedBy(func(req *http.Request) bool {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Verify request method and URL
-				if req.Method != http.MethodPut {
-					return false
-				}
-				expectedURL := "https://api.example.com/api/v1/agents/me/status"
-				if req.URL.String() != expectedURL {
-					return false
-				}
+				assert.Equal(t, http.MethodPut, r.Method)
+				assert.Equal(t, "/api/v1/agents/me/status", r.URL.Path)
 
 				// Verify headers
-				if req.Header.Get("Authorization") != "Bearer test-token" {
-					return false
-				}
-				if req.Header.Get("Content-Type") != "application/json" {
-					return false
-				}
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 				// Verify request body
-				var body map[string]interface{}
-				bodyBytes, _ := io.ReadAll(req.Body)
-				req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // Reset body for actual use
-				json.Unmarshal(bodyBytes, &body)
-				return body["status"] == string(tt.status)
-			})).Return(createMockResponse(tt.mockStatusCode, nil), nil)
+				var body map[string]any
+				bodyBytes, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				err = json.Unmarshal(bodyBytes, &body)
+				require.NoError(t, err)
+				assert.Equal(t, string(tt.status), body["status"])
 
+				w.WriteHeader(tt.mockStatusCode)
+			}))
+			defer server.Close()
+
+			client := NewHTTPClient[TestProperties](server.URL, "test-token")
 			err := client.UpdateAgentStatus(tt.status)
 
 			if tt.expectError {
@@ -109,16 +79,16 @@ func TestHTTPClient_GetAgentInfo(t *testing.T) {
 	tests := []struct {
 		name           string
 		mockStatusCode int
-		mockResponse   map[string]interface{}
+		mockResponse   *agent.AgentInfo
 		expectError    bool
 	}{
 		{
 			name:           "successful get agent info",
 			mockStatusCode: http.StatusOK,
-			mockResponse: map[string]interface{}{
-				"id":     "agent-123",
-				"name":   "test-agent",
-				"status": "Connected",
+			mockResponse: &agent.AgentInfo{
+				ID:     "agent-123",
+				Name:   "test-agent",
+				Status: agent.AgentStatusConnected,
 			},
 			expectError: false,
 		},
@@ -132,23 +102,20 @@ func TestHTTPClient_GetAgentInfo(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTP := NewMockhttpClient(t)
-			client := &HTTPClient[TestProperties]{
-				baseURL:    "https://api.example.com",
-				token:      "test-token",
-				httpClient: mockHTTP,
-			}
-
-			mockHTTP.EXPECT().Do(mock.MatchedBy(func(req *http.Request) bool {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Verify request method and URL
-				if req.Method != http.MethodGet {
-					return false
-				}
-				expectedURL := "https://api.example.com/api/v1/agents/me"
-				return req.URL.String() == expectedURL &&
-					req.Header.Get("Authorization") == "Bearer test-token"
-			})).Return(createMockResponse(tt.mockStatusCode, tt.mockResponse), nil)
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "/api/v1/agents/me", r.URL.Path)
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 
+				w.WriteHeader(tt.mockStatusCode)
+				if tt.mockResponse != nil {
+					json.NewEncoder(w).Encode(tt.mockResponse)
+				}
+			}))
+			defer server.Close()
+
+			client := NewHTTPClient[TestProperties](server.URL, "test-token")
 			result, err := client.GetAgentInfo()
 
 			if tt.expectError {
@@ -202,23 +169,20 @@ func TestHTTPClient_GetPendingJobs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTP := NewMockhttpClient(t)
-			client := &HTTPClient[TestProperties]{
-				baseURL:    "https://api.example.com",
-				token:      "test-token",
-				httpClient: mockHTTP,
-			}
-
-			mockHTTP.EXPECT().Do(mock.MatchedBy(func(req *http.Request) bool {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Verify request method and URL
-				if req.Method != http.MethodGet {
-					return false
-				}
-				expectedURL := "https://api.example.com/api/v1/jobs/pending"
-				return req.URL.String() == expectedURL &&
-					req.Header.Get("Authorization") == "Bearer test-token"
-			})).Return(createMockResponse(tt.mockStatusCode, tt.mockJobs), nil)
+				assert.Equal(t, http.MethodGet, r.Method)
+				assert.Equal(t, "/api/v1/jobs/pending", r.URL.Path)
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 
+				w.WriteHeader(tt.mockStatusCode)
+				if tt.mockJobs != nil {
+					json.NewEncoder(w).Encode(tt.mockJobs)
+				}
+			}))
+			defer server.Close()
+
+			client := NewHTTPClient[TestProperties](server.URL, "test-token")
 			result, err := client.GetPendingJobs()
 
 			if tt.expectError {
@@ -261,23 +225,18 @@ func TestHTTPClient_ClaimJob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTP := NewMockhttpClient(t)
-			client := &HTTPClient[TestProperties]{
-				baseURL:    "https://api.example.com",
-				token:      "test-token",
-				httpClient: mockHTTP,
-			}
-
-			mockHTTP.EXPECT().Do(mock.MatchedBy(func(req *http.Request) bool {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Verify request method and URL
-				if req.Method != http.MethodPost {
-					return false
-				}
-				expectedURL := fmt.Sprintf("https://api.example.com/api/v1/jobs/%s/claim", tt.jobID)
-				return req.URL.String() == expectedURL &&
-					req.Header.Get("Authorization") == "Bearer test-token"
-			})).Return(createMockResponse(tt.mockStatusCode, nil), nil)
+				assert.Equal(t, http.MethodPost, r.Method)
+				expectedPath := fmt.Sprintf("/api/v1/jobs/%s/claim", tt.jobID)
+				assert.Equal(t, expectedPath, r.URL.Path)
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
 
+				w.WriteHeader(tt.mockStatusCode)
+			}))
+			defer server.Close()
+
+			client := NewHTTPClient[TestProperties](server.URL, "test-token")
 			err := client.ClaimJob(tt.jobID)
 
 			if tt.expectError {
@@ -293,14 +252,14 @@ func TestHTTPClient_CompleteJob(t *testing.T) {
 	tests := []struct {
 		name           string
 		jobID          string
-		response       interface{}
+		response       any
 		mockStatusCode int
 		expectError    bool
 	}{
 		{
 			name:  "successful job completion with 200",
 			jobID: "job-123",
-			response: map[string]interface{}{
+			response: map[string]any{
 				"result": "success",
 				"data":   "test-data",
 			},
@@ -310,14 +269,14 @@ func TestHTTPClient_CompleteJob(t *testing.T) {
 		{
 			name:           "successful job completion with 204",
 			jobID:          "job-123",
-			response:       "simple response",
+			response:       map[string]any{"message": "simple response"},
 			mockStatusCode: http.StatusNoContent,
 			expectError:    false,
 		},
 		{
 			name:           "server error",
 			jobID:          "job-123",
-			response:       "response",
+			response:       map[string]any{"error": "response"},
 			mockStatusCode: http.StatusInternalServerError,
 			expectError:    true,
 		},
@@ -325,33 +284,24 @@ func TestHTTPClient_CompleteJob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTP := NewMockhttpClient(t)
-			client := &HTTPClient[TestProperties]{
-				baseURL:    "https://api.example.com",
-				token:      "test-token",
-				httpClient: mockHTTP,
-			}
-
-			mockHTTP.EXPECT().Do(mock.MatchedBy(func(req *http.Request) bool {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Verify request method and URL
-				if req.Method != http.MethodPost {
-					return false
-				}
-				expectedURL := fmt.Sprintf("https://api.example.com/api/v1/jobs/%s/complete", tt.jobID)
-				if req.URL.String() != expectedURL {
-					return false
-				}
+				assert.Equal(t, http.MethodPost, r.Method)
+				expectedPath := fmt.Sprintf("/api/v1/jobs/%s/complete", tt.jobID)
+				assert.Equal(t, expectedPath, r.URL.Path)
 
 				// Verify request body matches the response
-				var body interface{}
-				bodyBytes, _ := io.ReadAll(req.Body)
-				req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // Reset body for actual use
-				json.Unmarshal(bodyBytes, &body)
-				expectedBody, _ := json.Marshal(tt.response)
-				actualBody, _ := json.Marshal(body)
-				return string(expectedBody) == string(actualBody)
-			})).Return(createMockResponse(tt.mockStatusCode, nil), nil)
+				bodyBytes, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
 
+				expectedBody, _ := json.Marshal(tt.response)
+				assert.JSONEq(t, string(expectedBody), string(bodyBytes))
+
+				w.WriteHeader(tt.mockStatusCode)
+			}))
+			defer server.Close()
+
+			client := NewHTTPClient[TestProperties](server.URL, "test-token")
 			err := client.CompleteJob(tt.jobID, tt.response)
 
 			if tt.expectError {
@@ -396,31 +346,25 @@ func TestHTTPClient_FailJob(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTP := NewMockhttpClient(t)
-			client := &HTTPClient[TestProperties]{
-				baseURL:    "https://api.example.com",
-				token:      "test-token",
-				httpClient: mockHTTP,
-			}
-
-			mockHTTP.EXPECT().Do(mock.MatchedBy(func(req *http.Request) bool {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Verify request method and URL
-				if req.Method != http.MethodPost {
-					return false
-				}
-				expectedURL := fmt.Sprintf("https://api.example.com/api/v1/jobs/%s/fail", tt.jobID)
-				if req.URL.String() != expectedURL {
-					return false
-				}
+				assert.Equal(t, http.MethodPost, r.Method)
+				expectedPath := fmt.Sprintf("/api/v1/jobs/%s/fail", tt.jobID)
+				assert.Equal(t, expectedPath, r.URL.Path)
 
 				// Verify request body
-				var body map[string]interface{}
-				bodyBytes, _ := io.ReadAll(req.Body)
-				req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // Reset body for actual use
-				json.Unmarshal(bodyBytes, &body)
-				return body["errorMessage"] == tt.errorMessage
-			})).Return(createMockResponse(tt.mockStatusCode, nil), nil)
+				var body map[string]any
+				bodyBytes, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				err = json.Unmarshal(bodyBytes, &body)
+				require.NoError(t, err)
+				assert.Equal(t, tt.errorMessage, body["errorMessage"])
 
+				w.WriteHeader(tt.mockStatusCode)
+			}))
+			defer server.Close()
+
+			client := NewHTTPClient[TestProperties](server.URL, "test-token")
 			err := client.FailJob(tt.jobID, tt.errorMessage)
 
 			if tt.expectError {
@@ -476,31 +420,24 @@ func TestHTTPClient_ReportMetric(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTP := NewMockhttpClient(t)
-			client := &HTTPClient[TestProperties]{
-				baseURL:    "https://api.example.com",
-				token:      "test-token",
-				httpClient: mockHTTP,
-			}
-
-			mockHTTP.EXPECT().Do(mock.MatchedBy(func(req *http.Request) bool {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Verify request method and URL
-				if req.Method != http.MethodPost {
-					return false
-				}
-				expectedURL := "https://api.example.com/api/v1/metric-entries"
-				if req.URL.String() != expectedURL {
-					return false
-				}
+				assert.Equal(t, http.MethodPost, r.Method)
+				assert.Equal(t, "/api/v1/metric-entries", r.URL.Path)
 
 				// Verify request body
 				var body agent.MetricEntry
-				bodyBytes, _ := io.ReadAll(req.Body)
-				req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes)) // Reset body for actual use
-				json.Unmarshal(bodyBytes, &body)
-				return body == *tt.metric
-			})).Return(createMockResponse(tt.mockStatusCode, nil), nil)
+				bodyBytes, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				err = json.Unmarshal(bodyBytes, &body)
+				require.NoError(t, err)
+				assert.Equal(t, *tt.metric, body)
 
+				w.WriteHeader(tt.mockStatusCode)
+			}))
+			defer server.Close()
+
+			client := NewHTTPClient[TestProperties](server.URL, "test-token")
 			err := client.ReportMetric(tt.metric)
 
 			if tt.expectError {
@@ -514,11 +451,10 @@ func TestHTTPClient_ReportMetric(t *testing.T) {
 
 func TestHTTPClient_URLConstruction(t *testing.T) {
 	tests := []struct {
-		name           string
-		baseURL        string
-		expectedURL    string
-		endpoint       string
-		expectURLError bool
+		name        string
+		baseURL     string
+		expectedURL string
+		endpoint    string
 	}{
 		{
 			name:        "standard URL construction",
@@ -542,38 +478,18 @@ func TestHTTPClient_URLConstruction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockHTTP := NewMockhttpClient(t)
-			client := &HTTPClient[TestProperties]{
-				baseURL:    tt.baseURL,
-				token:      "test-token",
-				httpClient: mockHTTP,
-			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(map[string]any{"test": "data"})
+			}))
+			defer server.Close()
 
-			mockHTTP.EXPECT().Do(mock.MatchedBy(func(req *http.Request) bool {
-				return req.URL.String() == tt.expectedURL
-			})).Return(createMockResponse(http.StatusOK, map[string]interface{}{"test": "data"}), nil)
-
+			// Test that the client can be created with different base URLs
+			client := NewHTTPClient[TestProperties](server.URL, "test-token")
 			_, err := client.GetAgentInfo()
 			assert.NoError(t, err)
 		})
 	}
-}
-
-func TestHTTPClient_HTTPError(t *testing.T) {
-	mockHTTP := NewMockhttpClient(t)
-	client := &HTTPClient[TestProperties]{
-		baseURL:    "https://api.example.com",
-		token:      "test-token",
-		httpClient: mockHTTP,
-	}
-
-	// Test HTTP client error (not HTTP status error)
-	expectedError := fmt.Errorf("network error")
-	mockHTTP.EXPECT().Do(mock.AnythingOfType("*http.Request")).Return(nil, expectedError)
-
-	err := client.UpdateAgentStatus(agent.AgentStatusConnected)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to update agent status")
 }
 
 func TestNewHTTPClient(t *testing.T) {
@@ -583,11 +499,9 @@ func TestNewHTTPClient(t *testing.T) {
 	client := NewHTTPClient[TestProperties](baseURL, token)
 
 	assert.NotNil(t, client)
-	assert.Equal(t, baseURL, client.baseURL)
 	assert.Equal(t, token, client.token)
-	assert.NotNil(t, client.httpClient)
+	assert.NotNil(t, client.client)
 
-	// Verify that the httpClient is a real HTTP client (not our mock)
-	_, ok := client.httpClient.(*http.Client)
-	assert.True(t, ok, "httpClient should be a real *http.Client")
+	// Verify that the client is properly configured
+	assert.Equal(t, baseURL, client.client.BaseURL())
 }

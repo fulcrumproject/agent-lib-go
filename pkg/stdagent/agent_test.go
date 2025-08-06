@@ -123,9 +123,10 @@ func TestAgent_Run(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Mock the expected calls during startup
-		mockClient.EXPECT().GetAgentInfo().Return(map[string]any{
-			"id":   "test-agent-123",
-			"name": "test-agent",
+		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo{
+			ID:     "test-agent-123",
+			Name:   "test-agent",
+			Status: agent.AgentStatusConnected,
 		}, nil).Once()
 
 		mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusConnected).Return(nil).Once()
@@ -155,9 +156,9 @@ func TestAgent_Run(t *testing.T) {
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
-		mockClient.EXPECT().GetAgentInfo().Return(map[string]any{
-			"name": "test-agent",
-			// missing id field
+		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo{
+			Name: "test-agent",
+			// missing ID field to test error case
 		}, nil).Once()
 
 		ctx := context.Background()
@@ -171,8 +172,8 @@ func TestAgent_Run(t *testing.T) {
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
-		mockClient.EXPECT().GetAgentInfo().Return(map[string]any{
-			"id": "test-agent-123",
+		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo{
+			ID: "test-agent-123",
 		}, nil).Once()
 
 		mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusConnected).Return(assert.AnError).Once()
@@ -423,8 +424,8 @@ func TestAgent_IntegrationWithHeartbeat(t *testing.T) {
 	})
 
 	// Mock startup sequence
-	mockClient.EXPECT().GetAgentInfo().Return(map[string]any{
-		"id": "test-agent-123",
+	mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo{
+		ID: "test-agent-123",
 	}, nil).Once()
 
 	mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusConnected).Return(nil).Once()
