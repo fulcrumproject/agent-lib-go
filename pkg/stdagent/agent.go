@@ -17,8 +17,8 @@ const (
 	DefaultMetricsReportInterval = 30 * time.Second
 )
 
-type Agent[P any, R any] struct {
-	client                FulcrumClient[P]
+type Agent[P, R, C any] struct {
+	client                FulcrumClient[P, C]
 	heartbeatInterval     time.Duration
 	heartbeatHandler      agent.HeartbeatHandler
 	jobPollInterval       time.Duration
@@ -43,8 +43,8 @@ type Agent[P any, R any] struct {
 	agentID       string
 }
 
-func New[P any, R any](client FulcrumClient[P], options ...AgentOption[P, R]) (*Agent[P, R], error) {
-	agent := &Agent[P, R]{
+func New[P, R, C any](client FulcrumClient[P, C], options ...AgentOption[P, R, C]) (*Agent[P, R, C], error) {
+	agent := &Agent[P, R, C]{
 		client:                client,
 		jobHandlers:           make(map[agent.JobAction]agent.JobHandler[P, R]),
 		heartbeatInterval:     DefaultHeartbeatInterval,
@@ -65,22 +65,22 @@ func New[P any, R any](client FulcrumClient[P], options ...AgentOption[P, R]) (*
 	return agent, nil
 }
 
-func (a *Agent[P, R]) OnJob(action agent.JobAction, handler agent.JobHandler[P, R]) error {
+func (a *Agent[P, R, C]) OnJob(action agent.JobAction, handler agent.JobHandler[P, R]) error {
 	a.jobHandlers[action] = handler
 	return nil
 }
 
-func (a *Agent[P, R]) OnMetricsReport(handler agent.MetricsReporter[P]) error {
+func (a *Agent[P, R, C]) OnMetricsReport(handler agent.MetricsReporter[P]) error {
 	a.metricsReporter = handler
 	return nil
 }
 
-func (a *Agent[P, R]) OnHeartbeat(handler agent.HeartbeatHandler) error {
+func (a *Agent[P, R, C]) OnHeartbeat(handler agent.HeartbeatHandler) error {
 	a.heartbeatHandler = handler
 	return nil
 }
 
-func (a *Agent[P, R]) Run(ctx context.Context) error {
+func (a *Agent[P, R, C]) Run(ctx context.Context) error {
 	a.startTime = time.Now()
 
 	// Get agent information to verify the token is valid
@@ -124,7 +124,7 @@ func (a *Agent[P, R]) Run(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent[P, R]) Shutdown(ctx context.Context) error {
+func (a *Agent[P, R, C]) Shutdown(ctx context.Context) error {
 	// Close the stop channel to signal all goroutines to stop
 	close(a.stopCh)
 
@@ -158,7 +158,7 @@ func (a *Agent[P, R]) Shutdown(ctx context.Context) error {
 }
 
 // heartbeat periodically calls the heartbeat handler and updates the agent status
-func (a *Agent[P, R]) heartbeat(ctx context.Context) {
+func (a *Agent[P, R, C]) heartbeat(ctx context.Context) {
 	defer a.wg.Done()
 
 	ticker := time.NewTicker(a.heartbeatInterval)
@@ -216,7 +216,7 @@ func (a *Agent[P, R]) heartbeat(ctx context.Context) {
 }
 
 // reportMetrics periodically calls the metrics reporter
-func (a *Agent[P, R]) reportMetrics(ctx context.Context) {
+func (a *Agent[P, R, C]) reportMetrics(ctx context.Context) {
 	defer a.wg.Done()
 
 	ticker := time.NewTicker(a.metricsReportInterval)
@@ -250,7 +250,7 @@ func (a *Agent[P, R]) reportMetrics(ctx context.Context) {
 }
 
 // pollJobs periodically polls for pending jobs and processes them
-func (a *Agent[P, R]) pollJobs(ctx context.Context) {
+func (a *Agent[P, R, C]) pollJobs(ctx context.Context) {
 	defer a.wg.Done()
 
 	ticker := time.NewTicker(a.jobPollInterval)
@@ -277,7 +277,7 @@ func (a *Agent[P, R]) pollJobs(ctx context.Context) {
 }
 
 // pollAndProcessJobs polls for pending jobs and processes them
-func (a *Agent[P, R]) pollAndProcessJobs(ctx context.Context) error {
+func (a *Agent[P, R, C]) pollAndProcessJobs(ctx context.Context) error {
 	// Get pending jobs
 	jobs, err := a.client.GetPendingJobs()
 	if err != nil {
@@ -332,36 +332,36 @@ func (a *Agent[P, R]) pollAndProcessJobs(ctx context.Context) error {
 }
 
 // GetAgentID returns the agent's ID
-func (a *Agent[P, R]) GetAgentID() string {
+func (a *Agent[P, R, C]) GetAgentID() string {
 	return a.agentID
 }
 
 // GetUptime returns the agent's uptime
-func (a *Agent[P, R]) GetUptime() time.Duration {
+func (a *Agent[P, R, C]) GetUptime() time.Duration {
 	return time.Since(a.startTime)
 }
 
 // GetJobStats returns the job processing statistics
-func (a *Agent[P, R]) GetJobStats() (processed, succeeded, failed int) {
+func (a *Agent[P, R, C]) GetJobStats() (processed, succeeded, failed int) {
 	return a.jobStats.processed, a.jobStats.succeeded, a.jobStats.failed
 }
 
 // GetStatus returns the current agent status
-func (a *Agent[P, R]) GetStatus() agent.AgentStatus {
+func (a *Agent[P, R, C]) GetStatus() agent.AgentStatus {
 	a.statusMu.RLock()
 	defer a.statusMu.RUnlock()
 	return a.status
 }
 
 // setStatus sets the agent status (thread-safe)
-func (a *Agent[P, R]) setStatus(status agent.AgentStatus) {
+func (a *Agent[P, R, C]) setStatus(status agent.AgentStatus) {
 	a.statusMu.Lock()
 	defer a.statusMu.Unlock()
 	a.status = status
 }
 
 // stopJobPolling stops the job polling goroutine
-func (a *Agent[P, R]) stopJobPolling() {
+func (a *Agent[P, R, C]) stopJobPolling() {
 	select {
 	case a.jobPollStopCh <- struct{}{}:
 	default:
@@ -370,7 +370,7 @@ func (a *Agent[P, R]) stopJobPolling() {
 }
 
 // restartJobPolling restarts the job polling goroutine
-func (a *Agent[P, R]) restartJobPolling(ctx context.Context) {
+func (a *Agent[P, R, C]) restartJobPolling(ctx context.Context) {
 	// Create a new stop channel for the new polling goroutine
 	a.jobPollStopCh = make(chan struct{})
 

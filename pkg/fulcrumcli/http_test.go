@@ -13,10 +13,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Test properties type for generic testing
 type TestProperties struct {
 	Name  string `json:"name"`
 	Value int    `json:"value"`
+}
+
+type TestConfig struct {
+	TestProperty string `json:"testProperty"`
 }
 
 func TestHTTPClient_UpdateAgentStatus(t *testing.T) {
@@ -63,7 +66,7 @@ func TestHTTPClient_UpdateAgentStatus(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties](server.URL, "test-token")
+			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
 			err := client.UpdateAgentStatus(tt.status)
 
 			if tt.expectError {
@@ -79,13 +82,13 @@ func TestHTTPClient_GetAgentInfo(t *testing.T) {
 	tests := []struct {
 		name           string
 		mockStatusCode int
-		mockResponse   *agent.AgentInfo
+		mockResponse   *agent.AgentInfo[TestConfig]
 		expectError    bool
 	}{
 		{
 			name:           "successful get agent info",
 			mockStatusCode: http.StatusOK,
-			mockResponse: &agent.AgentInfo{
+			mockResponse: &agent.AgentInfo[TestConfig]{
 				ID:     "agent-123",
 				Name:   "test-agent",
 				Status: agent.AgentStatusConnected,
@@ -115,7 +118,7 @@ func TestHTTPClient_GetAgentInfo(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties](server.URL, "test-token")
+			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
 			result, err := client.GetAgentInfo()
 
 			if tt.expectError {
@@ -182,7 +185,7 @@ func TestHTTPClient_GetPendingJobs(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties](server.URL, "test-token")
+			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
 			result, err := client.GetPendingJobs()
 
 			if tt.expectError {
@@ -236,7 +239,7 @@ func TestHTTPClient_ClaimJob(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties](server.URL, "test-token")
+			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
 			err := client.ClaimJob(tt.jobID)
 
 			if tt.expectError {
@@ -301,7 +304,7 @@ func TestHTTPClient_CompleteJob(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties](server.URL, "test-token")
+			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
 			err := client.CompleteJob(tt.jobID, tt.response)
 
 			if tt.expectError {
@@ -364,7 +367,7 @@ func TestHTTPClient_FailJob(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties](server.URL, "test-token")
+			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
 			err := client.FailJob(tt.jobID, tt.errorMessage)
 
 			if tt.expectError {
@@ -437,7 +440,7 @@ func TestHTTPClient_ReportMetric(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties](server.URL, "test-token")
+			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
 			err := client.ReportMetric(tt.metric)
 
 			if tt.expectError {
@@ -485,7 +488,7 @@ func TestHTTPClient_URLConstruction(t *testing.T) {
 			defer server.Close()
 
 			// Test that the client can be created with different base URLs
-			client := NewHTTPClient[TestProperties](server.URL, "test-token")
+			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
 			_, err := client.GetAgentInfo()
 			assert.NoError(t, err)
 		})
@@ -496,7 +499,7 @@ func TestNewHTTPClient(t *testing.T) {
 	baseURL := "https://api.example.com"
 	token := "test-token"
 
-	client := NewHTTPClient[TestProperties](baseURL, token)
+	client := NewHTTPClient[TestProperties, TestConfig](baseURL, token)
 
 	assert.NotNil(t, client)
 	assert.Equal(t, token, client.token)

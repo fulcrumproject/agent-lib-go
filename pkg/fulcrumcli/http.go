@@ -11,27 +11,27 @@ import (
 )
 
 // HTTPClient implements FulcrumClient interface using Resty v3
-type HTTPClient[P any] struct {
+type HTTPClient[P, C any] struct {
 	client *resty.Client
 	token  string // Agent authentication token
 }
 
 // NewHTTPClient creates a new Fulcrum API client
-func NewHTTPClient[P any](baseURL string, token string) *HTTPClient[P] {
+func NewHTTPClient[P, C any](baseURL string, token string) *HTTPClient[P, C] {
 	client := resty.New()
 	client.SetBaseURL(baseURL)
 	client.SetTimeout(30 * time.Second)
 	client.SetHeader("Content-Type", "application/json")
 	client.SetAuthToken(token)
 
-	return &HTTPClient[P]{
+	return &HTTPClient[P, C]{
 		client: client,
 		token:  token,
 	}
 }
 
 // UpdateAgentStatus updates the agent's status in Fulcrum Core
-func (c *HTTPClient[P]) UpdateAgentStatus(status agent.AgentStatus) error {
+func (c *HTTPClient[P, C]) UpdateAgentStatus(status agent.AgentStatus) error {
 	resp, err := c.client.R().
 		SetBody(map[string]any{
 			"status": status,
@@ -50,7 +50,7 @@ func (c *HTTPClient[P]) UpdateAgentStatus(status agent.AgentStatus) error {
 }
 
 // GetAgentInfo retrieves the agent's information from Fulcrum Core
-func (c *HTTPClient[P]) GetAgentInfo() (*agent.AgentInfo, error) {
+func (c *HTTPClient[P, C]) GetAgentInfo() (*agent.AgentInfo[C], error) {
 	resp, err := c.client.R().
 		Get("/api/v1/agents/me")
 
@@ -67,7 +67,7 @@ func (c *HTTPClient[P]) GetAgentInfo() (*agent.AgentInfo, error) {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	var result agent.AgentInfo
+	var result agent.AgentInfo[C]
 	if err := json.Unmarshal(bodyBytes, &result); err != nil {
 		return nil, fmt.Errorf("failed to decode agent info response: %w", err)
 	}
@@ -76,7 +76,7 @@ func (c *HTTPClient[P]) GetAgentInfo() (*agent.AgentInfo, error) {
 }
 
 // GetPendingJobs retrieves pending jobs for this agent
-func (c *HTTPClient[P]) GetPendingJobs() ([]*agent.Job[P], error) {
+func (c *HTTPClient[P, C]) GetPendingJobs() ([]*agent.Job[P], error) {
 	resp, err := c.client.R().
 		Get("/api/v1/jobs/pending")
 
@@ -102,7 +102,7 @@ func (c *HTTPClient[P]) GetPendingJobs() ([]*agent.Job[P], error) {
 }
 
 // ClaimJob claims a job for processing
-func (c *HTTPClient[P]) ClaimJob(jobID string) error {
+func (c *HTTPClient[P, C]) ClaimJob(jobID string) error {
 	resp, err := c.client.R().
 		Post(fmt.Sprintf("/api/v1/jobs/%s/claim", jobID))
 
@@ -118,7 +118,7 @@ func (c *HTTPClient[P]) ClaimJob(jobID string) error {
 }
 
 // CompleteJob marks a job as completed with results
-func (c *HTTPClient[P]) CompleteJob(jobID string, response any) error {
+func (c *HTTPClient[P, C]) CompleteJob(jobID string, response any) error {
 	resp, err := c.client.R().
 		SetBody(response).
 		Post(fmt.Sprintf("/api/v1/jobs/%s/complete", jobID))
@@ -135,7 +135,7 @@ func (c *HTTPClient[P]) CompleteJob(jobID string, response any) error {
 }
 
 // FailJob marks a job as failed with an error message
-func (c *HTTPClient[P]) FailJob(jobID string, errorMessage string) error {
+func (c *HTTPClient[P, C]) FailJob(jobID string, errorMessage string) error {
 	resp, err := c.client.R().
 		SetBody(map[string]any{
 			"errorMessage": errorMessage,
@@ -154,7 +154,7 @@ func (c *HTTPClient[P]) FailJob(jobID string, errorMessage string) error {
 }
 
 // ReportMetric sends collected metrics to Fulcrum Core
-func (c *HTTPClient[P]) ReportMetric(metric *agent.MetricEntry) error {
+func (c *HTTPClient[P, C]) ReportMetric(metric *agent.MetricEntry) error {
 	resp, err := c.client.R().
 		SetBody(metric).
 		Post("/api/v1/metric-entries")

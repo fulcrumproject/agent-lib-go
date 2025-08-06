@@ -63,11 +63,12 @@ type MetricEntry struct {
 }
 
 // AgentInfo represents the agent information returned by the Fulcrum Core API
-type AgentInfo struct {
+type AgentInfo[C any] struct {
 	ID          string      `json:"id"`
 	Name        string      `json:"name"`
 	Status      AgentStatus `json:"status"`
 	AgentTypeID string      `json:"agentTypeId"`
+	Config      *C          `json:"configuration"`
 }
 
 type JobResponse[R any] struct {

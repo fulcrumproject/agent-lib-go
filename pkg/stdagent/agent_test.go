@@ -20,9 +20,13 @@ type TestResource struct {
 	URL string `json:"url"`
 }
 
+type TestConfig struct {
+	TestProperty string `json:"testProperty"`
+}
+
 // TestAgentInterface verifies that Agent implements the agent.Agent interface
 func TestAgentInterface(t *testing.T) {
-	mockClient := NewMockFulcrumClient[TestPayload](t)
+	mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 	stdAgent, err := New[TestPayload, TestResource](mockClient)
 	assert.NoError(t, err)
 
@@ -31,7 +35,7 @@ func TestAgentInterface(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	mockClient := NewMockFulcrumClient[TestPayload](t)
+	mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 
 	t.Run("creates agent with default options", func(t *testing.T) {
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
@@ -49,9 +53,9 @@ func TestNew(t *testing.T) {
 
 		stdAgent, err := New(
 			mockClient,
-			WithHeartbeatInterval[TestPayload, TestResource](customHeartbeat),
-			WithJobPollInterval[TestPayload, TestResource](customJobPoll),
-			WithMetricsReportInterval[TestPayload, TestResource](customMetrics),
+			WithHeartbeatInterval[TestPayload, TestResource, TestConfig](customHeartbeat),
+			WithJobPollInterval[TestPayload, TestResource, TestConfig](customJobPoll),
+			WithMetricsReportInterval[TestPayload, TestResource, TestConfig](customMetrics),
 		)
 
 		assert.NoError(t, err)
@@ -64,14 +68,14 @@ func TestNew(t *testing.T) {
 	t.Run("fails with invalid options", func(t *testing.T) {
 		_, err := New(
 			mockClient,
-			WithHeartbeatInterval[TestPayload, TestResource](-1*time.Second),
+			WithHeartbeatInterval[TestPayload, TestResource, TestConfig](-1*time.Second),
 		)
 		assert.Error(t, err)
 	})
 }
 
 func TestAgent_OnJob(t *testing.T) {
-	mockClient := NewMockFulcrumClient[TestPayload](t)
+	mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 	stdAgent, err := New[TestPayload, TestResource](mockClient)
 	assert.NoError(t, err)
 
@@ -87,7 +91,7 @@ func TestAgent_OnJob(t *testing.T) {
 }
 
 func TestAgent_OnMetricsReport(t *testing.T) {
-	mockClient := NewMockFulcrumClient[TestPayload](t)
+	mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 	stdAgent, err := New[TestPayload, TestResource](mockClient)
 	assert.NoError(t, err)
 
@@ -103,7 +107,7 @@ func TestAgent_OnMetricsReport(t *testing.T) {
 }
 
 func TestAgent_OnHeartbeat(t *testing.T) {
-	mockClient := NewMockFulcrumClient[TestPayload](t)
+	mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 	stdAgent, err := New[TestPayload, TestResource](mockClient)
 	assert.NoError(t, err)
 
@@ -118,12 +122,12 @@ func TestAgent_OnHeartbeat(t *testing.T) {
 
 func TestAgent_Run(t *testing.T) {
 	t.Run("successful startup", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
 		// Mock the expected calls during startup
-		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo{
+		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo[TestConfig]{
 			ID:     "test-agent-123",
 			Name:   "test-agent",
 			Status: agent.AgentStatusConnected,
@@ -139,7 +143,7 @@ func TestAgent_Run(t *testing.T) {
 	})
 
 	t.Run("fails when GetAgentInfo returns error", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -152,11 +156,11 @@ func TestAgent_Run(t *testing.T) {
 	})
 
 	t.Run("fails when agent info is invalid", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
-		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo{
+		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo[TestConfig]{
 			Name: "test-agent",
 			// missing ID field to test error case
 		}, nil).Once()
@@ -168,11 +172,11 @@ func TestAgent_Run(t *testing.T) {
 	})
 
 	t.Run("fails when UpdateAgentStatus returns error", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
-		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo{
+		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo[TestConfig]{
 			ID: "test-agent-123",
 		}, nil).Once()
 
@@ -187,7 +191,7 @@ func TestAgent_Run(t *testing.T) {
 
 func TestAgent_Shutdown(t *testing.T) {
 	t.Run("successful shutdown when connected", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -204,7 +208,7 @@ func TestAgent_Shutdown(t *testing.T) {
 	})
 
 	t.Run("shutdown when not connected", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -215,7 +219,7 @@ func TestAgent_Shutdown(t *testing.T) {
 	})
 
 	t.Run("fails when UpdateAgentStatus returns error", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -231,7 +235,7 @@ func TestAgent_Shutdown(t *testing.T) {
 
 func TestAgent_PollAndProcessJobs(t *testing.T) {
 	t.Run("processes job successfully", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -276,7 +280,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 	})
 
 	t.Run("handles job failure", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -307,7 +311,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 	})
 
 	t.Run("no pending jobs", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -322,7 +326,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 	})
 
 	t.Run("no handler for job action", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -343,7 +347,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 	})
 
 	t.Run("fails to get pending jobs", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -356,7 +360,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 	})
 
 	t.Run("fails to claim job", func(t *testing.T) {
-		mockClient := NewMockFulcrumClient[TestPayload](t)
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 		stdAgent, err := New[TestPayload, TestResource](mockClient)
 		assert.NoError(t, err)
 
@@ -381,7 +385,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 }
 
 func TestAgent_GetMethods(t *testing.T) {
-	mockClient := NewMockFulcrumClient[TestPayload](t)
+	mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 	stdAgent, err := New[TestPayload, TestResource](mockClient)
 	assert.NoError(t, err)
 
@@ -407,12 +411,12 @@ func TestAgent_GetMethods(t *testing.T) {
 }
 
 func TestAgent_IntegrationWithHeartbeat(t *testing.T) {
-	mockClient := NewMockFulcrumClient[TestPayload](t)
+	mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
 
 	// Create agent with very short intervals for testing
 	stdAgent, err := New(
 		mockClient,
-		WithHeartbeatInterval[TestPayload, TestResource](50*time.Millisecond),
+		WithHeartbeatInterval[TestPayload, TestResource, TestConfig](50*time.Millisecond),
 	)
 	assert.NoError(t, err)
 
@@ -424,7 +428,7 @@ func TestAgent_IntegrationWithHeartbeat(t *testing.T) {
 	})
 
 	// Mock startup sequence
-	mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo{
+	mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo[TestConfig]{
 		ID: "test-agent-123",
 	}, nil).Once()
 

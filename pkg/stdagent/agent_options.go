@@ -5,10 +5,10 @@ import (
 	"time"
 )
 
-type AgentOption[P any, R any] func(*Agent[P, R]) error
+type AgentOption[P, R, C any] func(*Agent[P, R, C]) error
 
-func WithHeartbeatInterval[P any, R any](interval time.Duration) AgentOption[P, R] {
-	return func(a *Agent[P, R]) error {
+func WithHeartbeatInterval[P, R, C any](interval time.Duration) AgentOption[P, R, C] {
+	return func(a *Agent[P, R, C]) error {
 		if interval <= 0 {
 			return fmt.Errorf("heartbeat interval must be greater than 0")
 		}
@@ -17,8 +17,8 @@ func WithHeartbeatInterval[P any, R any](interval time.Duration) AgentOption[P, 
 	}
 }
 
-func WithJobPollInterval[P any, R any](interval time.Duration) AgentOption[P, R] {
-	return func(a *Agent[P, R]) error {
+func WithJobPollInterval[P, R, C any](interval time.Duration) AgentOption[P, R, C] {
+	return func(a *Agent[P, R, C]) error {
 		if interval <= 0 {
 			return fmt.Errorf("job poll interval must be greater than 0")
 		}
@@ -27,8 +27,8 @@ func WithJobPollInterval[P any, R any](interval time.Duration) AgentOption[P, R]
 	}
 }
 
-func WithMetricsReportInterval[P any, R any](interval time.Duration) AgentOption[P, R] {
-	return func(a *Agent[P, R]) error {
+func WithMetricsReportInterval[P, R, C any](interval time.Duration) AgentOption[P, R, C] {
+	return func(a *Agent[P, R, C]) error {
 		if interval <= 0 {
 			return fmt.Errorf("metrics report interval must be greater than 0")
 		}
