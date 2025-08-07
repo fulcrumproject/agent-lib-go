@@ -37,6 +37,15 @@ const (
 	JobStatusFailed     JobStatus = "Failed"
 )
 
+// UnsupportedJobError represents an error when a job cannot be supported by the agent
+type UnsupportedJobError struct {
+	Msg string
+}
+
+func (e *UnsupportedJobError) Error() string {
+	return e.Msg
+}
+
 type Service[P any] struct {
 	ID                string  `json:"id"`
 	Name              string  `json:"name"`
@@ -82,10 +91,13 @@ type MetricsReporter[P any] func(ctx context.Context) (metrics []MetricEntry, er
 
 type HeartbeatHandler func(ctx context.Context) error
 
-type Agent[P any, R any] interface {
+type ConnectHandler[C any] func(ctx context.Context, info *AgentInfo[C]) error
+
+type Agent[P, R, C any] interface {
 	Run(ctx context.Context) error
 	Shutdown(ctx context.Context) error
+	OnConnect(handler ConnectHandler[C]) error
+	OnHeartbeat(handler HeartbeatHandler) error
 	OnJob(action JobAction, handler JobHandler[P, R]) error
 	OnMetricsReport(handler MetricsReporter[P]) error
-	OnHeartbeat(handler HeartbeatHandler) error
 }

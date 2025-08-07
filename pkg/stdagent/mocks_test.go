@@ -362,6 +362,63 @@ func (_c *MockFulcrumClient_ReportMetric_Call[P, C]) RunAndReturn(run func(metri
 	return _c
 }
 
+// UnsupportedJob provides a mock function for the type MockFulcrumClient
+func (_mock *MockFulcrumClient[P, C]) UnsupportedJob(jobID string, errorMessage string) error {
+	ret := _mock.Called(jobID, errorMessage)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UnsupportedJob")
+	}
+
+	var r0 error
+	if returnFunc, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = returnFunc(jobID, errorMessage)
+	} else {
+		r0 = ret.Error(0)
+	}
+	return r0
+}
+
+// MockFulcrumClient_UnsupportedJob_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UnsupportedJob'
+type MockFulcrumClient_UnsupportedJob_Call[P any, C any] struct {
+	*mock.Call
+}
+
+// UnsupportedJob is a helper method to define mock.On call
+//   - jobID string
+//   - errorMessage string
+func (_e *MockFulcrumClient_Expecter[P, C]) UnsupportedJob(jobID interface{}, errorMessage interface{}) *MockFulcrumClient_UnsupportedJob_Call[P, C] {
+	return &MockFulcrumClient_UnsupportedJob_Call[P, C]{Call: _e.mock.On("UnsupportedJob", jobID, errorMessage)}
+}
+
+func (_c *MockFulcrumClient_UnsupportedJob_Call[P, C]) Run(run func(jobID string, errorMessage string)) *MockFulcrumClient_UnsupportedJob_Call[P, C] {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		var arg1 string
+		if args[1] != nil {
+			arg1 = args[1].(string)
+		}
+		run(
+			arg0,
+			arg1,
+		)
+	})
+	return _c
+}
+
+func (_c *MockFulcrumClient_UnsupportedJob_Call[P, C]) Return(err error) *MockFulcrumClient_UnsupportedJob_Call[P, C] {
+	_c.Call.Return(err)
+	return _c
+}
+
+func (_c *MockFulcrumClient_UnsupportedJob_Call[P, C]) RunAndReturn(run func(jobID string, errorMessage string) error) *MockFulcrumClient_UnsupportedJob_Call[P, C] {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateAgentStatus provides a mock function for the type MockFulcrumClient
 func (_mock *MockFulcrumClient[P, C]) UpdateAgentStatus(status agent.AgentStatus) error {
 	ret := _mock.Called(status)

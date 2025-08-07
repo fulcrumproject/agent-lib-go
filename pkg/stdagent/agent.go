@@ -2,6 +2,8 @@ package stdagent
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -21,6 +23,7 @@ type Agent[P, R, C any] struct {
 	client                FulcrumClient[P, C]
 	heartbeatInterval     time.Duration
 	heartbeatHandler      agent.HeartbeatHandler
+	connectHandler        agent.ConnectHandler[C]
 	jobPollInterval       time.Duration
 	jobHandlers           map[agent.JobAction]agent.JobHandler[P, R]
 	metricsReportInterval time.Duration
@@ -28,9 +31,10 @@ type Agent[P, R, C any] struct {
 
 	// Job statistics
 	jobStats struct {
-		processed int
-		succeeded int
-		failed    int
+		processed   int
+		succeeded   int
+		failed      int
+		unsupported int
 	}
 
 	// Runtime state
@@ -80,6 +84,11 @@ func (a *Agent[P, R, C]) OnHeartbeat(handler agent.HeartbeatHandler) error {
 	return nil
 }
 
+func (a *Agent[P, R, C]) OnConnect(handler agent.ConnectHandler[C]) error {
+	a.connectHandler = handler
+	return nil
+}
+
 func (a *Agent[P, R, C]) Run(ctx context.Context) error {
 	a.startTime = time.Now()
 
@@ -96,6 +105,18 @@ func (a *Agent[P, R, C]) Run(ctx context.Context) error {
 	a.agentID = agentInfo.ID
 
 	slog.Info("Agent authenticated", "id", agentInfo.ID)
+
+	// If a connect handler is provided, use it to handle the agent info
+	if a.connectHandler != nil {
+		stringConfig, err := json.Marshal(agentInfo.Config)
+		if err != nil {
+			return fmt.Errorf("failed to marshal config: %w", err)
+		}
+		slog.Info("Running agent with connect handler", "config", stringConfig)
+		if err := a.connectHandler(ctx, agentInfo); err != nil {
+			return fmt.Errorf("failed to handle connect: %w", err)
+		}
+	}
 
 	// Update agent status to Connected
 	if err := a.client.UpdateAgentStatus(agent.AgentStatusConnected); err != nil {
@@ -296,7 +317,18 @@ func (a *Agent[P, R, C]) pollAndProcessJobs(ctx context.Context) error {
 	// Check if we have a handler for this job action
 	handler, ok := a.jobHandlers[job.Action]
 	if !ok {
-		slog.Warn("No handler registered for job action", "action", job.Action)
+		message := fmt.Sprintf("unsupported job action '%s'", job.Action)
+		unsupportedErr := &agent.UnsupportedJobError{Msg: message}
+		slog.Warn("No handler registered for job action", "action", job.Action, "job_id", job.ID)
+
+		// Mark job as unsupported
+		if err := a.client.UnsupportedJob(job.ID, unsupportedErr.Error()); err != nil {
+			slog.Error("Failed to mark job as unsupported", "job_id", job.ID, "error", err)
+			return err
+		}
+
+		a.jobStats.unsupported++
+		slog.Info("Job marked as unsupported", "job_id", job.ID, "action", job.Action)
 		return nil
 	}
 
@@ -311,12 +343,25 @@ func (a *Agent[P, R, C]) pollAndProcessJobs(ctx context.Context) error {
 	// Process the job using the registered handler
 	resp, err := handler(ctx, job)
 	if err != nil {
-		// Mark job as failed
-		slog.Error("Job failed", "job_id", job.ID, "error", err)
-		a.jobStats.failed++
-		if failErr := a.client.FailJob(job.ID, err.Error()); failErr != nil {
-			slog.Error("Failed to mark job as failed", "job_id", job.ID, "error", failErr)
-			return failErr
+		// Check if the error is an UnsupportedJobError
+		var unsupportedErr *agent.UnsupportedJobError
+		if errors.As(err, &unsupportedErr) {
+			// Mark job as unsupported
+			slog.Warn("Job handler returned unsupported error", "job_id", job.ID, "error", err)
+			a.jobStats.unsupported++
+			if unsuppErr := a.client.UnsupportedJob(job.ID, unsupportedErr.Error()); unsuppErr != nil {
+				slog.Error("Failed to mark job as unsupported", "job_id", job.ID, "error", unsuppErr)
+				return unsuppErr
+			}
+			slog.Info("Job marked as unsupported", "job_id", job.ID)
+		} else {
+			// Mark job as failed for other errors
+			slog.Error("Job failed", "job_id", job.ID, "error", err)
+			a.jobStats.failed++
+			if failErr := a.client.FailJob(job.ID, err.Error()); failErr != nil {
+				slog.Error("Failed to mark job as failed", "job_id", job.ID, "error", failErr)
+				return failErr
+			}
 		}
 	} else {
 		// Job succeeded
@@ -342,8 +387,8 @@ func (a *Agent[P, R, C]) GetUptime() time.Duration {
 }
 
 // GetJobStats returns the job processing statistics
-func (a *Agent[P, R, C]) GetJobStats() (processed, succeeded, failed int) {
-	return a.jobStats.processed, a.jobStats.succeeded, a.jobStats.failed
+func (a *Agent[P, R, C]) GetJobStats() (processed, succeeded, failed, unsupported int) {
+	return a.jobStats.processed, a.jobStats.succeeded, a.jobStats.failed, a.jobStats.unsupported
 }
 
 // GetStatus returns the current agent status

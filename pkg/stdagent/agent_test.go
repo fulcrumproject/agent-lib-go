@@ -31,7 +31,7 @@ func TestAgentInterface(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Verify that the standard agent implements the agent.Agent interface
-	var _ agent.Agent[TestPayload, TestResource] = stdAgent
+	var _ agent.Agent[TestPayload, TestResource, TestConfig] = stdAgent
 }
 
 func TestNew(t *testing.T) {
@@ -118,6 +118,145 @@ func TestAgent_OnHeartbeat(t *testing.T) {
 	err = stdAgent.OnHeartbeat(handler)
 	assert.NoError(t, err)
 	assert.NotNil(t, stdAgent.heartbeatHandler)
+}
+
+func TestAgent_OnConnect(t *testing.T) {
+	mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
+	stdAgent, err := New[TestPayload, TestResource](mockClient)
+	assert.NoError(t, err)
+
+	connectHandler := func(ctx context.Context, info *agent.AgentInfo[TestConfig]) error {
+		return nil
+	}
+
+	err = stdAgent.OnConnect(connectHandler)
+	assert.NoError(t, err)
+	assert.NotNil(t, stdAgent.connectHandler)
+}
+
+func TestAgent_RunWithConnect(t *testing.T) {
+	t.Run("runs successfully with connect handler", func(t *testing.T) {
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
+		stdAgent, err := New[TestPayload, TestResource](mockClient)
+		assert.NoError(t, err)
+
+		// Track if connect handler was called
+		connectHandled := false
+		var receivedInfo *agent.AgentInfo[TestConfig]
+
+		connectHandler := func(ctx context.Context, info *agent.AgentInfo[TestConfig]) error {
+			connectHandled = true
+			receivedInfo = info
+			return nil
+		}
+
+		// Set the connect handler
+		stdAgent.OnConnect(connectHandler)
+
+		// Mock the expected calls during startup
+		expectedInfo := &agent.AgentInfo[TestConfig]{
+			ID:          "test-agent-123",
+			Name:        "test-agent",
+			Status:      agent.AgentStatusConnected,
+			AgentTypeID: "test-type",
+			Config:      &TestConfig{TestProperty: "test-value"},
+		}
+		mockClient.EXPECT().GetAgentInfo().Return(expectedInfo, nil).Once()
+
+		mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusConnected).Return(nil).Once()
+
+		ctx := context.Background()
+		err = stdAgent.Run(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, "test-agent-123", stdAgent.GetAgentID())
+		assert.Equal(t, agent.AgentStatusConnected, stdAgent.GetStatus())
+		assert.True(t, connectHandled, "Connect handler should have been called")
+		assert.Equal(t, expectedInfo, receivedInfo, "Connect handler should receive the correct agent info")
+	})
+
+	t.Run("runs successfully without connect handler", func(t *testing.T) {
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
+		stdAgent, err := New[TestPayload, TestResource](mockClient)
+		assert.NoError(t, err)
+
+		// Mock the expected calls during startup
+		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo[TestConfig]{
+			ID:     "test-agent-123",
+			Name:   "test-agent",
+			Status: agent.AgentStatusConnected,
+			Config: &TestConfig{TestProperty: "test-value"},
+		}, nil).Once()
+
+		mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusConnected).Return(nil).Once()
+
+		ctx := context.Background()
+		err = stdAgent.Run(ctx)
+		assert.NoError(t, err)
+		assert.Equal(t, "test-agent-123", stdAgent.GetAgentID())
+		assert.Equal(t, agent.AgentStatusConnected, stdAgent.GetStatus())
+	})
+
+	t.Run("fails when connect handler returns error", func(t *testing.T) {
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
+		stdAgent, err := New[TestPayload, TestResource](mockClient)
+		assert.NoError(t, err)
+
+		connectHandler := func(ctx context.Context, info *agent.AgentInfo[TestConfig]) error {
+			return assert.AnError
+		}
+
+		// Set the connect handler
+		stdAgent.OnConnect(connectHandler)
+
+		// Mock the expected calls during startup
+		mockClient.EXPECT().GetAgentInfo().Return(&agent.AgentInfo[TestConfig]{
+			ID:     "test-agent-123",
+			Name:   "test-agent",
+			Status: agent.AgentStatusConnected,
+			Config: &TestConfig{TestProperty: "test-value"},
+		}, nil).Once()
+
+		ctx := context.Background()
+		err = stdAgent.Run(ctx)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to handle connect")
+	})
+
+	t.Run("handles nil config gracefully", func(t *testing.T) {
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
+		stdAgent, err := New[TestPayload, TestResource](mockClient)
+		assert.NoError(t, err)
+
+		connectHandled := false
+		var receivedInfo *agent.AgentInfo[TestConfig]
+
+		connectHandler := func(ctx context.Context, info *agent.AgentInfo[TestConfig]) error {
+			connectHandled = true
+			receivedInfo = info
+			return nil
+		}
+
+		// Set the connect handler
+		stdAgent.OnConnect(connectHandler)
+
+		// Mock the expected calls during startup with nil config
+		expectedInfo := &agent.AgentInfo[TestConfig]{
+			ID:     "test-agent-123",
+			Name:   "test-agent",
+			Status: agent.AgentStatusConnected,
+			Config: nil,
+		}
+		mockClient.EXPECT().GetAgentInfo().Return(expectedInfo, nil).Once()
+
+		mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusConnected).Return(nil).Once()
+
+		ctx := context.Background()
+		err = stdAgent.Run(ctx)
+		assert.NoError(t, err)
+		assert.True(t, connectHandled, "Connect handler should have been called even with nil config")
+		assert.Equal(t, expectedInfo, receivedInfo, "Connect handler should receive the agent info with nil config")
+		assert.Nil(t, receivedInfo.Config, "Agent info should have nil config")
+	})
 }
 
 func TestAgent_Run(t *testing.T) {
@@ -273,10 +412,11 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, succeeded, failed := stdAgent.GetJobStats()
+		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
 		assert.Equal(t, 1, processed)
 		assert.Equal(t, 1, succeeded)
 		assert.Equal(t, 0, failed)
+		assert.Equal(t, 0, unsupported)
 	})
 
 	t.Run("handles job failure", func(t *testing.T) {
@@ -304,10 +444,11 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, succeeded, failed := stdAgent.GetJobStats()
+		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
 		assert.Equal(t, 1, processed)
 		assert.Equal(t, 0, succeeded)
 		assert.Equal(t, 1, failed)
+		assert.Equal(t, 0, unsupported)
 	})
 
 	t.Run("no pending jobs", func(t *testing.T) {
@@ -321,7 +462,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, _, _ := stdAgent.GetJobStats()
+		processed, _, _, _ := stdAgent.GetJobStats()
 		assert.Equal(t, 0, processed)
 	})
 
@@ -337,13 +478,50 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		}
 
 		mockClient.EXPECT().GetPendingJobs().Return([]*agent.Job[TestPayload]{testJob}, nil).Once()
+		mockClient.EXPECT().UnsupportedJob("job-123", "unsupported job action 'ServiceCreate'").Return(nil).Once()
 
 		ctx := context.Background()
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, _, _ := stdAgent.GetJobStats()
+		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
 		assert.Equal(t, 1, processed) // Job is counted as processed even if no handler
+		assert.Equal(t, 0, succeeded)
+		assert.Equal(t, 0, failed)
+		assert.Equal(t, 1, unsupported) // Job is counted as unsupported
+	})
+
+	t.Run("handler returns unsupported job error", func(t *testing.T) {
+		mockClient := NewMockFulcrumClient[TestPayload, TestConfig](t)
+		stdAgent, err := New[TestPayload, TestResource](mockClient)
+		assert.NoError(t, err)
+
+		// Register a job handler that returns UnsupportedJobError
+		handler := func(ctx context.Context, job *agent.Job[TestPayload]) (*agent.JobResponse[TestResource], error) {
+			return nil, &agent.UnsupportedJobError{Msg: "unsupported property value"}
+		}
+		err = stdAgent.OnJob(agent.JobActionServiceCreate, handler)
+		assert.NoError(t, err)
+
+		testJob := &agent.Job[TestPayload]{
+			ID:     "job-123",
+			Action: agent.JobActionServiceCreate,
+			Status: agent.JobStatusPending,
+		}
+
+		mockClient.EXPECT().GetPendingJobs().Return([]*agent.Job[TestPayload]{testJob}, nil).Once()
+		mockClient.EXPECT().ClaimJob("job-123").Return(nil).Once()
+		mockClient.EXPECT().UnsupportedJob("job-123", "unsupported property value").Return(nil).Once()
+
+		ctx := context.Background()
+		err = stdAgent.pollAndProcessJobs(ctx)
+		assert.NoError(t, err)
+
+		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
+		assert.Equal(t, 1, processed)
+		assert.Equal(t, 0, succeeded)
+		assert.Equal(t, 0, failed)
+		assert.Equal(t, 1, unsupported) // Job is counted as unsupported
 	})
 
 	t.Run("fails to get pending jobs", func(t *testing.T) {
@@ -404,10 +582,11 @@ func TestAgent_GetMethods(t *testing.T) {
 	stdAgent.jobStats.succeeded = 8
 	stdAgent.jobStats.failed = 2
 
-	processed, succeeded, failed := stdAgent.GetJobStats()
+	processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
 	assert.Equal(t, 10, processed)
 	assert.Equal(t, 8, succeeded)
 	assert.Equal(t, 2, failed)
+	assert.Equal(t, 0, unsupported)
 }
 
 func TestAgent_IntegrationWithHeartbeat(t *testing.T) {

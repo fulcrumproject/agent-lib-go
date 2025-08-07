@@ -10,5 +10,6 @@ type FulcrumClient[P, C any] interface {
 	ClaimJob(jobID string) error
 	CompleteJob(jobID string, resources any) error
 	FailJob(jobID string, errorMessage string) error
+	UnsupportedJob(jobID string, errorMessage string) error
 	ReportMetric(metrics *agent.MetricEntry) error
 }
