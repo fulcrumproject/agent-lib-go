@@ -14,20 +14,20 @@ import (
 
 // Default intervals
 const (
-	DefaultHeartbeatInterval     = 60 * time.Second
+	DefaultHealthInterval        = 60 * time.Second
 	DefaultJobPollInterval       = 5 * time.Second
 	DefaultMetricsReportInterval = 30 * time.Second
 )
 
-type Agent[P, R, C any] struct {
-	client                FulcrumClient[P, C]
-	heartbeatInterval     time.Duration
-	heartbeatHandler      agent.HeartbeatHandler
-	connectHandler        agent.ConnectHandler[C]
+type Agent struct {
+	client                FulcrumClient
+	healthInterval        time.Duration
+	healthbeatHandler     agent.HealthHandler
+	connectHandler        agent.RawConnectHandler
 	jobPollInterval       time.Duration
-	jobHandlers           map[agent.JobAction]agent.JobHandler[P, R]
+	jobHandlers           map[agent.JobAction]agent.RawJobHandler
 	metricsReportInterval time.Duration
-	metricsReporter       agent.MetricsReporter[P]
+	metricsReporter       agent.MetricsReporter
 
 	// Job statistics
 	jobStats struct {
@@ -47,11 +47,11 @@ type Agent[P, R, C any] struct {
 	agentID       string
 }
 
-func New[P, R, C any](client FulcrumClient[P, C], options ...AgentOption[P, R, C]) (*Agent[P, R, C], error) {
-	agent := &Agent[P, R, C]{
+func New(client FulcrumClient, options ...AgentOption) (*Agent, error) {
+	agent := &Agent{
 		client:                client,
-		jobHandlers:           make(map[agent.JobAction]agent.JobHandler[P, R]),
-		heartbeatInterval:     DefaultHeartbeatInterval,
+		jobHandlers:           make(map[agent.JobAction]agent.RawJobHandler),
+		healthInterval:        DefaultHealthInterval,
 		jobPollInterval:       DefaultJobPollInterval,
 		metricsReportInterval: DefaultMetricsReportInterval,
 		stopCh:                make(chan struct{}),
@@ -69,27 +69,27 @@ func New[P, R, C any](client FulcrumClient[P, C], options ...AgentOption[P, R, C
 	return agent, nil
 }
 
-func (a *Agent[P, R, C]) OnJob(action agent.JobAction, handler agent.JobHandler[P, R]) error {
+func (a *Agent) OnJob(action agent.JobAction, handler agent.RawJobHandler) error {
 	a.jobHandlers[action] = handler
 	return nil
 }
 
-func (a *Agent[P, R, C]) OnMetricsReport(handler agent.MetricsReporter[P]) error {
+func (a *Agent) OnMetrics(handler agent.MetricsReporter) error {
 	a.metricsReporter = handler
 	return nil
 }
 
-func (a *Agent[P, R, C]) OnHeartbeat(handler agent.HeartbeatHandler) error {
-	a.heartbeatHandler = handler
+func (a *Agent) OnHealth(handler agent.HealthHandler) error {
+	a.healthbeatHandler = handler
 	return nil
 }
 
-func (a *Agent[P, R, C]) OnConnect(handler agent.ConnectHandler[C]) error {
+func (a *Agent) OnConnect(handler agent.RawConnectHandler) error {
 	a.connectHandler = handler
 	return nil
 }
 
-func (a *Agent[P, R, C]) Run(ctx context.Context) error {
+func (a *Agent) Run(ctx context.Context) error {
 	a.startTime = time.Now()
 
 	// Get agent information to verify the token is valid
@@ -108,11 +108,15 @@ func (a *Agent[P, R, C]) Run(ctx context.Context) error {
 
 	// If a connect handler is provided, use it to handle the agent info
 	if a.connectHandler != nil {
-		stringConfig, err := json.Marshal(agentInfo.Config)
-		if err != nil {
-			return fmt.Errorf("failed to marshal config: %w", err)
+		if agentInfo.Config != nil {
+			stringConfig, err := json.Marshal(agentInfo.Config)
+			if err != nil {
+				return fmt.Errorf("failed to marshal config: %w", err)
+			}
+			slog.Info("Running agent with connect handler", "config", stringConfig)
+		} else {
+			slog.Info("Running agent with connect handler", "config", "nil")
 		}
-		slog.Info("Running agent with connect handler", "config", stringConfig)
 		if err := a.connectHandler(ctx, agentInfo); err != nil {
 			return fmt.Errorf("failed to handle connect: %w", err)
 		}
@@ -127,9 +131,9 @@ func (a *Agent[P, R, C]) Run(ctx context.Context) error {
 	slog.Info("Agent status updated to Connected")
 
 	// Start background goroutines
-	if a.heartbeatHandler != nil {
+	if a.healthbeatHandler != nil {
 		a.wg.Add(1)
-		go a.heartbeat(ctx)
+		go a.health(ctx)
 	}
 
 	if a.metricsReporter != nil {
@@ -145,7 +149,7 @@ func (a *Agent[P, R, C]) Run(ctx context.Context) error {
 	return nil
 }
 
-func (a *Agent[P, R, C]) Shutdown(ctx context.Context) error {
+func (a *Agent) Shutdown(ctx context.Context) error {
 	// Close the stop channel to signal all goroutines to stop
 	close(a.stopCh)
 
@@ -178,31 +182,31 @@ func (a *Agent[P, R, C]) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-// heartbeat periodically calls the heartbeat handler and updates the agent status
-func (a *Agent[P, R, C]) heartbeat(ctx context.Context) {
+// health periodically calls the health handler and updates the agent status
+func (a *Agent) health(ctx context.Context) {
 	defer a.wg.Done()
 
-	ticker := time.NewTicker(a.heartbeatInterval)
+	ticker := time.NewTicker(a.healthInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			currentStatus := a.GetStatus()
-			heartbeatError := false
+			healthError := false
 
-			// Call custom heartbeat handler if provided
-			if a.heartbeatHandler != nil {
-				if err := a.heartbeatHandler(ctx); err != nil {
-					slog.Error("Heartbeat handler error", "error", err)
-					heartbeatError = true
+			// Call custom health handler if provided
+			if a.healthbeatHandler != nil {
+				if err := a.healthbeatHandler(ctx); err != nil {
+					slog.Error("Health handler error", "error", err)
+					healthError = true
 				}
 			}
 
-			// Handle heartbeat failure
-			if heartbeatError {
+			// Handle health failure
+			if healthError {
 				if currentStatus != agent.AgentStatusError {
-					slog.Info("Setting agent status to Error due to heartbeat failure")
+					slog.Info("Setting agent status to Error due to health failure")
 					// Update status to Error
 					if err := a.client.UpdateAgentStatus(agent.AgentStatusError); err != nil {
 						slog.Error("Failed to update agent status to Error", "error", err)
@@ -213,9 +217,9 @@ func (a *Agent[P, R, C]) heartbeat(ctx context.Context) {
 					a.stopJobPolling()
 				}
 			} else {
-				// Heartbeat succeeded
+				// Health succeeded
 				if currentStatus == agent.AgentStatusError {
-					slog.Info("Heartbeat recovered, setting agent status back to Connected")
+					slog.Info("Health recovered, setting agent status back to Connected")
 					// Restart job polling
 					a.restartJobPolling(ctx)
 				}
@@ -225,7 +229,7 @@ func (a *Agent[P, R, C]) heartbeat(ctx context.Context) {
 					slog.Error("Failed to update agent status", "error", err)
 				} else {
 					a.setStatus(agent.AgentStatusConnected)
-					slog.Info("Heartbeat: Agent status updated to Connected")
+					slog.Info("Health: Agent status updated to Connected")
 				}
 			}
 		case <-a.stopCh:
@@ -236,8 +240,8 @@ func (a *Agent[P, R, C]) heartbeat(ctx context.Context) {
 	}
 }
 
-// reportMetrics periodically calls the metrics reporter
-func (a *Agent[P, R, C]) reportMetrics(ctx context.Context) {
+// reportMetrics periodically calls the metrics reporter for each service
+func (a *Agent) reportMetrics(ctx context.Context) {
 	defer a.wg.Done()
 
 	ticker := time.NewTicker(a.metricsReportInterval)
@@ -246,21 +250,8 @@ func (a *Agent[P, R, C]) reportMetrics(ctx context.Context) {
 	for {
 		select {
 		case <-ticker.C:
-			metrics, err := a.metricsReporter(ctx)
-			if err != nil {
-				slog.Error("Error collecting metrics", "error", err)
-				continue
-			}
-
-			// Report each metric to the client
-			for _, metric := range metrics {
-				if err := a.client.ReportMetric(&metric); err != nil {
-					slog.Error("Error reporting metric", "error", err)
-				}
-			}
-
-			if len(metrics) > 0 {
-				slog.Info("Reported metrics", "count", len(metrics))
+			if err := a.collectAndReportAllMetrics(ctx); err != nil {
+				slog.Error("Error during metrics collection and reporting", "error", err)
 			}
 		case <-a.stopCh:
 			return
@@ -270,8 +261,90 @@ func (a *Agent[P, R, C]) reportMetrics(ctx context.Context) {
 	}
 }
 
+// collectAndReportAllMetrics iterates through all services with pagination and collects metrics for each
+func (a *Agent) collectAndReportAllMetrics(ctx context.Context) error {
+	totalMetricsReported := 0
+	page := 1
+	pageSize := 50 // Default page size for service listing
+
+	for {
+		// Get services with pagination
+		pagination := &agent.PaginationOptions{
+			Page:     page,
+			PageSize: pageSize,
+		}
+
+		servicesResponse, err := a.client.ListServices(pagination)
+		if err != nil {
+			return fmt.Errorf("failed to list services for metrics collection: %w", err)
+		}
+
+		// If no services on this page, we're done
+		if len(servicesResponse.Items) == 0 {
+			break
+		}
+
+		// Process each service
+		for _, service := range servicesResponse.Items {
+			if service == nil {
+				slog.Warn("Received nil service in response, skipping")
+				continue
+			}
+
+			// Skip if service is new or deleted
+			if service.Status == agent.ServiceStatusNew || service.Status == agent.ServiceStatusDeleted {
+				slog.Debug("Skipping new or deleted service", "service_id", service.ID, "service_name", service.Name)
+				continue
+			}
+
+			// Call the metrics reporter for this specific service with panic recovery
+			metrics, err := a.executeMetricsReporterWithPanicRecovery(ctx, service)
+			if err != nil {
+				slog.Error("Error collecting metrics for service",
+					"service_id", service.ID,
+					"service_name", service.Name,
+					"error", err)
+				continue
+			}
+
+			// Report each metric to the client
+			for _, metric := range metrics {
+				if err := a.client.ReportMetric(&metric); err != nil {
+					slog.Error("Error reporting metric",
+						"service_id", service.ID,
+						"metric_type", metric.TypeName,
+						"error", err)
+				}
+			}
+
+			totalMetricsReported += len(metrics)
+
+			if len(metrics) > 0 {
+				slog.Info("Collected metrics for service",
+					"service_id", service.ID,
+					"service_name", service.Name,
+					"metric_count", len(metrics))
+			}
+		}
+
+		// Check if we've processed all pages
+		if page >= servicesResponse.TotalPages {
+			break
+		}
+
+		// Move to next page
+		page++
+	}
+
+	if totalMetricsReported > 0 {
+		slog.Info("Completed metrics reporting cycle", "total_metrics", totalMetricsReported)
+	}
+
+	return nil
+}
+
 // pollJobs periodically polls for pending jobs and processes them
-func (a *Agent[P, R, C]) pollJobs(ctx context.Context) {
+func (a *Agent) pollJobs(ctx context.Context) {
 	defer a.wg.Done()
 
 	ticker := time.NewTicker(a.jobPollInterval)
@@ -298,7 +371,7 @@ func (a *Agent[P, R, C]) pollJobs(ctx context.Context) {
 }
 
 // pollAndProcessJobs polls for pending jobs and processes them
-func (a *Agent[P, R, C]) pollAndProcessJobs(ctx context.Context) error {
+func (a *Agent) pollAndProcessJobs(ctx context.Context) error {
 	// Get pending jobs
 	jobs, err := a.client.GetPendingJobs()
 	if err != nil {
@@ -340,8 +413,8 @@ func (a *Agent[P, R, C]) pollAndProcessJobs(ctx context.Context) error {
 
 	slog.Info("Processing job", "job_id", job.ID, "action", job.Action)
 
-	// Process the job using the registered handler
-	resp, err := handler(ctx, job)
+	// Process the job using the registered handler with panic recovery
+	resp, err := a.executeJobHandlerWithPanicRecovery(ctx, job, handler)
 	if err != nil {
 		// Check if the error is an UnsupportedJobError
 		var unsupportedErr *agent.UnsupportedJobError
@@ -376,37 +449,69 @@ func (a *Agent[P, R, C]) pollAndProcessJobs(ctx context.Context) error {
 	return nil
 }
 
+// executeJobHandlerWithPanicRecovery executes a job handler with panic recovery
+// If the handler panics, the panic is recovered and returned as an error
+func (a *Agent) executeJobHandlerWithPanicRecovery(ctx context.Context, job *agent.RawJob, handler agent.RawJobHandler) (resp *agent.RawJobResponse, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Convert panic to error
+			err = fmt.Errorf("job handler panicked: %v", r)
+			resp = nil
+			slog.Error("Job handler panic recovered", "job_id", job.ID, "panic", r)
+		}
+	}()
+
+	// Execute the handler
+	return handler(ctx, job)
+}
+
+// executeMetricsReporterWithPanicRecovery executes a metrics reporter with panic recovery
+// If the reporter panics, the panic is recovered and returned as an error
+func (a *Agent) executeMetricsReporterWithPanicRecovery(ctx context.Context, service *agent.Service) (metrics []agent.MetricEntry, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Convert panic to error
+			err = fmt.Errorf("metrics reporter panicked: %v", r)
+			metrics = nil
+			slog.Error("Metrics reporter panic recovered", "service_id", service.ID, "service_name", service.Name, "panic", r)
+		}
+	}()
+
+	// Execute the metrics reporter
+	return a.metricsReporter(ctx, service)
+}
+
 // GetAgentID returns the agent's ID
-func (a *Agent[P, R, C]) GetAgentID() string {
+func (a *Agent) GetAgentID() string {
 	return a.agentID
 }
 
 // GetUptime returns the agent's uptime
-func (a *Agent[P, R, C]) GetUptime() time.Duration {
+func (a *Agent) GetUptime() time.Duration {
 	return time.Since(a.startTime)
 }
 
 // GetJobStats returns the job processing statistics
-func (a *Agent[P, R, C]) GetJobStats() (processed, succeeded, failed, unsupported int) {
+func (a *Agent) GetJobStats() (processed, succeeded, failed, unsupported int) {
 	return a.jobStats.processed, a.jobStats.succeeded, a.jobStats.failed, a.jobStats.unsupported
 }
 
 // GetStatus returns the current agent status
-func (a *Agent[P, R, C]) GetStatus() agent.AgentStatus {
+func (a *Agent) GetStatus() agent.AgentStatus {
 	a.statusMu.RLock()
 	defer a.statusMu.RUnlock()
 	return a.status
 }
 
 // setStatus sets the agent status (thread-safe)
-func (a *Agent[P, R, C]) setStatus(status agent.AgentStatus) {
+func (a *Agent) setStatus(status agent.AgentStatus) {
 	a.statusMu.Lock()
 	defer a.statusMu.Unlock()
 	a.status = status
 }
 
 // stopJobPolling stops the job polling goroutine
-func (a *Agent[P, R, C]) stopJobPolling() {
+func (a *Agent) stopJobPolling() {
 	select {
 	case a.jobPollStopCh <- struct{}{}:
 	default:
@@ -415,7 +520,7 @@ func (a *Agent[P, R, C]) stopJobPolling() {
 }
 
 // restartJobPolling restarts the job polling goroutine
-func (a *Agent[P, R, C]) restartJobPolling(ctx context.Context) {
+func (a *Agent) restartJobPolling(ctx context.Context) {
 	// Create a new stop channel for the new polling goroutine
 	a.jobPollStopCh = make(chan struct{})
 

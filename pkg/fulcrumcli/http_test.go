@@ -66,7 +66,7 @@ func TestHTTPClient_UpdateAgentStatus(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
+			client := NewHTTPClient(server.URL, "test-token")
 			err := client.UpdateAgentStatus(tt.status)
 
 			if tt.expectError {
@@ -82,13 +82,13 @@ func TestHTTPClient_GetAgentInfo(t *testing.T) {
 	tests := []struct {
 		name           string
 		mockStatusCode int
-		mockResponse   *agent.AgentInfo[TestConfig]
+		mockResponse   *agent.AgentInfo[json.RawMessage]
 		expectError    bool
 	}{
 		{
 			name:           "successful get agent info",
 			mockStatusCode: http.StatusOK,
-			mockResponse: &agent.AgentInfo[TestConfig]{
+			mockResponse: &agent.AgentInfo[json.RawMessage]{
 				ID:     "agent-123",
 				Name:   "test-agent",
 				Status: agent.AgentStatusConnected,
@@ -118,7 +118,7 @@ func TestHTTPClient_GetAgentInfo(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
+			client := NewHTTPClient(server.URL, "test-token")
 			result, err := client.GetAgentInfo()
 
 			if tt.expectError {
@@ -136,30 +136,30 @@ func TestHTTPClient_GetPendingJobs(t *testing.T) {
 	tests := []struct {
 		name           string
 		mockStatusCode int
-		mockJobs       []*agent.Job[TestProperties]
+		mockJobs       []*agent.RawJob
 		expectError    bool
 	}{
 		{
 			name:           "successful get pending jobs",
 			mockStatusCode: http.StatusOK,
-			mockJobs: []*agent.Job[TestProperties]{
-				{
-					ID:       "job-1",
-					Action:   agent.JobActionServiceCreate,
-					Status:   agent.JobStatusPending,
-					Priority: 1,
-					Service: agent.Service[TestProperties]{
-						ID:   "service-1",
-						Name: "test-service",
+			mockJobs: func() []*agent.RawJob {
+				params := json.RawMessage(`{"name":"test-service","value":42}`)
+				return []*agent.RawJob{
+					{
+						ID:       "job-1",
+						Action:   agent.JobActionServiceCreate,
+						Status:   agent.JobStatusPending,
+						Priority: 1,
+						Params:   &params,
 					},
-				},
-			},
+				}
+			}(),
 			expectError: false,
 		},
 		{
 			name:           "empty jobs list",
 			mockStatusCode: http.StatusOK,
-			mockJobs:       []*agent.Job[TestProperties]{},
+			mockJobs:       []*agent.RawJob{},
 			expectError:    false,
 		},
 		{
@@ -185,7 +185,7 @@ func TestHTTPClient_GetPendingJobs(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
+			client := NewHTTPClient(server.URL, "test-token")
 			result, err := client.GetPendingJobs()
 
 			if tt.expectError {
@@ -239,7 +239,7 @@ func TestHTTPClient_ClaimJob(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
+			client := NewHTTPClient(server.URL, "test-token")
 			err := client.ClaimJob(tt.jobID)
 
 			if tt.expectError {
@@ -304,7 +304,7 @@ func TestHTTPClient_CompleteJob(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
+			client := NewHTTPClient(server.URL, "test-token")
 			err := client.CompleteJob(tt.jobID, tt.response)
 
 			if tt.expectError {
@@ -367,7 +367,7 @@ func TestHTTPClient_FailJob(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
+			client := NewHTTPClient(server.URL, "test-token")
 			err := client.FailJob(tt.jobID, tt.errorMessage)
 
 			if tt.expectError {
@@ -440,7 +440,7 @@ func TestHTTPClient_ReportMetric(t *testing.T) {
 			}))
 			defer server.Close()
 
-			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
+			client := NewHTTPClient(server.URL, "test-token")
 			err := client.ReportMetric(tt.metric)
 
 			if tt.expectError {
@@ -488,7 +488,7 @@ func TestHTTPClient_URLConstruction(t *testing.T) {
 			defer server.Close()
 
 			// Test that the client can be created with different base URLs
-			client := NewHTTPClient[TestProperties, TestConfig](server.URL, "test-token")
+			client := NewHTTPClient(server.URL, "test-token")
 			_, err := client.GetAgentInfo()
 			assert.NoError(t, err)
 		})
@@ -499,7 +499,7 @@ func TestNewHTTPClient(t *testing.T) {
 	baseURL := "https://api.example.com"
 	token := "test-token"
 
-	client := NewHTTPClient[TestProperties, TestConfig](baseURL, token)
+	client := NewHTTPClient(baseURL, token)
 
 	assert.NotNil(t, client)
 	assert.Equal(t, token, client.token)
