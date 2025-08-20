@@ -48,13 +48,13 @@ func (e *UnsupportedJobError) Error() string {
 }
 
 // Job represents a job from the Fulcrum Core job queue
-type Job[P any] struct {
-	ID       string    `json:"id"`
-	Action   JobAction `json:"action"`
-	Status   JobStatus `json:"status"`
-	Params   *P        `json:"params"`
-	Priority int       `json:"priority"`
-	Service  *Service  `json:"service"`
+type Job[P any, SP any, SR any] struct {
+	ID       string           `json:"id"`
+	Action   JobAction        `json:"action"`
+	Status   JobStatus        `json:"status"`
+	Params   *P               `json:"params"`
+	Priority int              `json:"priority"`
+	Service  *Service[SP, SR] `json:"service"`
 }
 
 // ServiceStatus represents the possible status of a Service
@@ -67,20 +67,20 @@ const (
 	ServiceStatusDeleted ServiceStatus = "Deleted"
 )
 
-type Service struct {
-	ID            string                 `json:"id"`
-	Name          string                 `json:"name"`
-	Status        ServiceStatus          `json:"status"`
-	Properties    map[string]interface{} `json:"properties"`
-	Resources     map[string]interface{} `json:"resources"`
-	ExternalID    *string                `json:"externalId"`
-	ProviderID    string                 `json:"providerId"`
-	ConsumerID    string                 `json:"consumerId"`
-	AgentID       string                 `json:"agentId"`
-	ServiceTypeID string                 `json:"serviceTypeId"`
-	GroupID       string                 `json:"groupId"`
-	CreatedAt     time.Time              `json:"createdAt"`
-	UpdatedAt     time.Time              `json:"updatedAt"`
+type Service[P any, R any] struct {
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	Status        ServiceStatus `json:"status"`
+	Properties    *P            `json:"properties"`
+	Resources     *R            `json:"resources"`
+	ExternalID    *string       `json:"externalId"`
+	ProviderID    string        `json:"providerId"`
+	ConsumerID    string        `json:"consumerId"`
+	AgentID       string        `json:"agentId"`
+	ServiceTypeID string        `json:"serviceTypeId"`
+	GroupID       string        `json:"groupId"`
+	CreatedAt     time.Time     `json:"createdAt"`
+	UpdatedAt     time.Time     `json:"updatedAt"`
 }
 
 // PaginationOptions represents options for paginated requests
@@ -98,7 +98,9 @@ type PageResponse[T any] struct {
 	Page       int `json:"page"`
 }
 
-type RawJob Job[json.RawMessage]
+type RawJob Job[json.RawMessage, json.RawMessage, json.RawMessage]
+
+type RawService Service[json.RawMessage, json.RawMessage]
 
 // MetricEntry represents a single metric measurement
 type MetricEntry struct {
@@ -127,13 +129,15 @@ type RawJobResponse JobResponse[json.RawMessage]
 // JobHandler is the function type for the job handler
 // that is called when a job is received from the Fulcrum Core API
 // and is used to process the job
-type JobHandler[P any, R any] func(ctx context.Context, job *Job[P]) (*JobResponse[R], error)
+type JobHandler[JP any, SP any, R any] func(ctx context.Context, job *Job[JP, SP, R]) (*JobResponse[R], error)
 
 type RawJobHandler func(ctx context.Context, job *RawJob) (*RawJobResponse, error)
 
-// MetricsReporter is the function type for the metrics reporter
-// that is called periodically to report metrics
-type MetricsReporter func(ctx context.Context, service *Service) (metrics []MetricEntry, err error)
+// MetricsReporter is the function type for the typed metrics reporter
+// that is called periodically to report metrics with strongly typed service properties and resources
+type MetricsReporter[P any, R any] func(ctx context.Context, service *Service[P, R]) (metrics []MetricEntry, err error)
+
+type RawMetricsReporter func(ctx context.Context, service *RawService) (metrics []MetricEntry, err error)
 
 // HealthHandler is the function type for the health handler
 // that is called periodically to check the health of the agent
@@ -154,26 +158,54 @@ type Agent interface {
 	OnConnect(handler RawConnectHandler) error
 	OnHealth(handler HealthHandler) error
 	OnJob(action JobAction, handler RawJobHandler) error
-	OnMetrics(handler MetricsReporter) error
+	OnMetrics(handler RawMetricsReporter) error
+}
+
+// ConnectHandlerWrapper wraps a typed connect handler to return a raw connect handler
+func ConnectHandlerWrapper[C any](handler ConnectHandler[C]) RawConnectHandler {
+	return func(ctx context.Context, info *AgentInfo[json.RawMessage]) error {
+		var config C
+		if info.Config != nil {
+			if err := json.Unmarshal(*info.Config, &config); err != nil {
+				return err
+			}
+		}
+
+		return handler(ctx, &AgentInfo[C]{
+			ID:          info.ID,
+			Name:        info.Name,
+			Status:      info.Status,
+			AgentTypeID: info.AgentTypeID,
+			Config:      &config,
+		})
+	}
 }
 
 // JobHandlerWrapper wraps a typed job handler to return a raw job handler
-func JobHandlerWrapper[P any, R any](handler JobHandler[P, R]) RawJobHandler {
+func JobHandlerWrapper[JP any, SP any, R any](handler JobHandler[JP, SP, R]) RawJobHandler {
 	return func(ctx context.Context, job *RawJob) (*RawJobResponse, error) {
-		var params P
+		var params JP
+
+		// Unmarshal job parameters if they exist
 		if job.Params != nil {
 			if err := json.Unmarshal(*job.Params, &params); err != nil {
 				return nil, err
 			}
 		}
 
-		resp, err := handler(ctx, &Job[P]{
+		// Convert raw service to typed service using the helper
+		typedService, err := unmarshalTypedService[SP, R](job.Service)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := handler(ctx, &Job[JP, SP, R]{
 			ID:       job.ID,
 			Action:   job.Action,
 			Status:   job.Status,
 			Params:   &params,
 			Priority: job.Priority,
-			Service:  job.Service,
+			Service:  typedService,
 		})
 		if err != nil {
 			return nil, err
@@ -196,22 +228,55 @@ func JobHandlerWrapper[P any, R any](handler JobHandler[P, R]) RawJobHandler {
 	}
 }
 
-// ConnectHandlerWrapper wraps a typed connect handler to return a raw connect handler
-func ConnectHandlerWrapper[C any](handler ConnectHandler[C]) RawConnectHandler {
-	return func(ctx context.Context, info *AgentInfo[json.RawMessage]) error {
-		var config C
-		if info.Config != nil {
-			if err := json.Unmarshal(*info.Config, &config); err != nil {
-				return err
-			}
+// MetricsReporterWrapper wraps a typed metrics reporter to return a raw metrics reporter
+func MetricsReporterWrapper[P any, R any](reporter MetricsReporter[P, R]) RawMetricsReporter {
+	return func(ctx context.Context, service *RawService) ([]MetricEntry, error) {
+		// Convert raw service to typed service using the helper
+		typedService, err := unmarshalTypedService[P, R]((*Service[json.RawMessage, json.RawMessage])(service))
+		if err != nil {
+			return nil, err
 		}
 
-		return handler(ctx, &AgentInfo[C]{
-			ID:          info.ID,
-			Name:        info.Name,
-			Status:      info.Status,
-			AgentTypeID: info.AgentTypeID,
-			Config:      &config,
-		})
+		return reporter(ctx, typedService)
 	}
+}
+
+// unmarshalTypedService converts a RawService to a typed Service[P, R]
+func unmarshalTypedService[P any, R any](rawService *Service[json.RawMessage, json.RawMessage]) (*Service[P, R], error) {
+	if rawService == nil {
+		return nil, nil
+	}
+
+	var properties P
+	var resources R
+
+	// Unmarshal properties if they exist
+	if rawService.Properties != nil {
+		if err := json.Unmarshal(*rawService.Properties, &properties); err != nil {
+			return nil, err
+		}
+	}
+
+	// Unmarshal resources if they exist
+	if rawService.Resources != nil {
+		if err := json.Unmarshal(*rawService.Resources, &resources); err != nil {
+			return nil, err
+		}
+	}
+
+	return &Service[P, R]{
+		ID:            rawService.ID,
+		Name:          rawService.Name,
+		Status:        rawService.Status,
+		Properties:    &properties,
+		Resources:     &resources,
+		ExternalID:    rawService.ExternalID,
+		ProviderID:    rawService.ProviderID,
+		ConsumerID:    rawService.ConsumerID,
+		AgentID:       rawService.AgentID,
+		ServiceTypeID: rawService.ServiceTypeID,
+		GroupID:       rawService.GroupID,
+		CreatedAt:     rawService.CreatedAt,
+		UpdatedAt:     rawService.UpdatedAt,
+	}, nil
 }

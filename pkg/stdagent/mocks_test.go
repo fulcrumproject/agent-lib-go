@@ -314,23 +314,23 @@ func (_c *MockFulcrumClient_GetPendingJobs_Call) RunAndReturn(run func() ([]*age
 }
 
 // ListServices provides a mock function for the type MockFulcrumClient
-func (_mock *MockFulcrumClient) ListServices(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.Service], error) {
+func (_mock *MockFulcrumClient) ListServices(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.RawService], error) {
 	ret := _mock.Called(pagination)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ListServices")
 	}
 
-	var r0 *agent.PageResponse[*agent.Service]
+	var r0 *agent.PageResponse[*agent.RawService]
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(*agent.PaginationOptions) (*agent.PageResponse[*agent.Service], error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(*agent.PaginationOptions) (*agent.PageResponse[*agent.RawService], error)); ok {
 		return returnFunc(pagination)
 	}
-	if returnFunc, ok := ret.Get(0).(func(*agent.PaginationOptions) *agent.PageResponse[*agent.Service]); ok {
+	if returnFunc, ok := ret.Get(0).(func(*agent.PaginationOptions) *agent.PageResponse[*agent.RawService]); ok {
 		r0 = returnFunc(pagination)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*agent.PageResponse[*agent.Service])
+			r0 = ret.Get(0).(*agent.PageResponse[*agent.RawService])
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(*agent.PaginationOptions) error); ok {
@@ -365,12 +365,12 @@ func (_c *MockFulcrumClient_ListServices_Call) Run(run func(pagination *agent.Pa
 	return _c
 }
 
-func (_c *MockFulcrumClient_ListServices_Call) Return(pageResponse *agent.PageResponse[*agent.Service], err error) *MockFulcrumClient_ListServices_Call {
+func (_c *MockFulcrumClient_ListServices_Call) Return(pageResponse *agent.PageResponse[*agent.RawService], err error) *MockFulcrumClient_ListServices_Call {
 	_c.Call.Return(pageResponse, err)
 	return _c
 }
 
-func (_c *MockFulcrumClient_ListServices_Call) RunAndReturn(run func(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.Service], error)) *MockFulcrumClient_ListServices_Call {
+func (_c *MockFulcrumClient_ListServices_Call) RunAndReturn(run func(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.RawService], error)) *MockFulcrumClient_ListServices_Call {
 	_c.Call.Return(run)
 	return _c
 }

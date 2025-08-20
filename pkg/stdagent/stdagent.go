@@ -27,7 +27,7 @@ type Agent struct {
 	jobPollInterval       time.Duration
 	jobHandlers           map[agent.JobAction]agent.RawJobHandler
 	metricsReportInterval time.Duration
-	metricsReporter       agent.MetricsReporter
+	metricsReporter       agent.RawMetricsReporter
 
 	// Job statistics
 	jobStats struct {
@@ -74,7 +74,7 @@ func (a *Agent) OnJob(action agent.JobAction, handler agent.RawJobHandler) error
 	return nil
 }
 
-func (a *Agent) OnMetrics(handler agent.MetricsReporter) error {
+func (a *Agent) OnMetrics(handler agent.RawMetricsReporter) error {
 	a.metricsReporter = handler
 	return nil
 }
@@ -467,7 +467,7 @@ func (a *Agent) executeJobHandlerWithPanicRecovery(ctx context.Context, job *age
 
 // executeMetricsReporterWithPanicRecovery executes a metrics reporter with panic recovery
 // If the reporter panics, the panic is recovered and returned as an error
-func (a *Agent) executeMetricsReporterWithPanicRecovery(ctx context.Context, service *agent.Service) (metrics []agent.MetricEntry, err error) {
+func (a *Agent) executeMetricsReporterWithPanicRecovery(ctx context.Context, service *agent.RawService) (metrics []agent.MetricEntry, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			// Convert panic to error

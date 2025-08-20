@@ -26,6 +26,12 @@ type TestConfig struct {
 	TestProperty string `json:"testProperty"`
 }
 
+type TestProperties struct {
+	DatabaseURL    string `json:"database_url"`
+	MaxConnections int    `json:"max_connections"`
+	Enabled        bool   `json:"enabled"`
+}
+
 // TestAgentInterface verifies that Agent implements the agent.Agent interface
 func TestAgentInterface(t *testing.T) {
 	mockClient := NewMockFulcrumClient(t)
@@ -81,7 +87,7 @@ func TestAgent_OnJob(t *testing.T) {
 	stdAgent, err := New(mockClient)
 	assert.NoError(t, err)
 
-	handler := func(ctx context.Context, job *agent.Job[TestPayload]) (*agent.JobResponse[TestResource], error) {
+	handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 		return &agent.JobResponse[TestResource]{
 			Resources: &TestResource{ID: "test-id", URL: "http://test.com"},
 		}, nil
@@ -97,15 +103,31 @@ func TestAgent_OnMetricsReport(t *testing.T) {
 	stdAgent, err := New(mockClient)
 	assert.NoError(t, err)
 
-	reporter := func(ctx context.Context, service *agent.Service) ([]agent.MetricEntry, error) {
-		return []agent.MetricEntry{
-			{ExternalID: "test", ResourceID: "res-1", Value: 100.0, TypeName: "cpu"},
-		}, nil
-	}
+	t.Run("with raw metrics reporter", func(t *testing.T) {
+		reporter := func(ctx context.Context, service *agent.RawService) ([]agent.MetricEntry, error) {
+			return []agent.MetricEntry{
+				{ExternalID: "test", ResourceID: "res-1", Value: 100.0, TypeName: "cpu"},
+			}, nil
+		}
 
-	err = stdAgent.OnMetrics(reporter)
-	assert.NoError(t, err)
-	assert.NotNil(t, stdAgent.metricsReporter)
+		err = stdAgent.OnMetrics(reporter)
+		assert.NoError(t, err)
+		assert.NotNil(t, stdAgent.metricsReporter)
+	})
+
+	t.Run("with typed metrics reporter using wrapper", func(t *testing.T) {
+		// Define a typed metrics reporter
+		reporter := func(ctx context.Context, service *agent.Service[TestProperties, TestResource]) ([]agent.MetricEntry, error) {
+			return []agent.MetricEntry{
+				{ExternalID: "test", ResourceID: "res-1", Value: 100.0, TypeName: "cpu"},
+			}, nil
+		}
+
+		// Use the wrapper to convert it to a raw reporter
+		err = stdAgent.OnMetrics(agent.MetricsReporterWrapper(reporter))
+		assert.NoError(t, err)
+		assert.NotNil(t, stdAgent.metricsReporter)
+	})
 }
 
 func TestAgent_OnHealth(t *testing.T) {
@@ -459,7 +481,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 			ExternalID: stringPtr("ext-123"),
 		}
 
-		handler := func(ctx context.Context, job *agent.Job[TestPayload]) (*agent.JobResponse[TestResource], error) {
+		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			return jobResponse, nil
 		}
 		stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
@@ -501,7 +523,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Register a job handler that fails
-		handler := func(ctx context.Context, job *agent.Job[TestPayload]) (*agent.JobResponse[TestResource], error) {
+		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			return nil, assert.AnError
 		}
 		stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
@@ -591,7 +613,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Register a job handler that returns UnsupportedJobError
-		handler := func(ctx context.Context, job *agent.Job[TestPayload]) (*agent.JobResponse[TestResource], error) {
+		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			return nil, &agent.UnsupportedJobError{Msg: "unsupported property value"}
 		}
 		err = stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
@@ -645,7 +667,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		stdAgent, err := New(mockClient)
 		assert.NoError(t, err)
 
-		handler := func(ctx context.Context, job *agent.Job[TestPayload]) (*agent.JobResponse[TestResource], error) {
+		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			return &agent.JobResponse[TestResource]{}, nil
 		}
 		stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
@@ -679,7 +701,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Register a job handler that panics
-		handler := func(ctx context.Context, job *agent.Job[TestPayload]) (*agent.JobResponse[TestResource], error) {
+		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			panic("test panic in job handler")
 		}
 		stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
@@ -724,21 +746,21 @@ func TestAgent_CollectAndReportAllMetrics(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Register a metrics reporter that panics
-		reporter := func(ctx context.Context, service *agent.Service) ([]agent.MetricEntry, error) {
+		reporter := func(ctx context.Context, service *agent.RawService) ([]agent.MetricEntry, error) {
 			panic("test panic in metrics reporter")
 		}
 		stdAgent.OnMetrics(reporter)
 
 		// Mock service data
-		testService := &agent.Service{
+		testService := &agent.RawService{
 			ID:     "service-123",
 			Name:   "test-service",
 			Status: agent.ServiceStatusStarted,
 		}
 
 		// Mock the expected calls
-		mockClient.EXPECT().ListServices(mock.AnythingOfType("*agent.PaginationOptions")).Return(&agent.PageResponse[*agent.Service]{
-			Items:      []*agent.Service{testService},
+		mockClient.EXPECT().ListServices(mock.AnythingOfType("*agent.PaginationOptions")).Return(&agent.PageResponse[*agent.RawService]{
+			Items:      []*agent.RawService{testService},
 			TotalItems: 1,
 			TotalPages: 1,
 			PageSize:   50,
@@ -758,24 +780,24 @@ func TestAgent_CollectAndReportAllMetrics(t *testing.T) {
 		stdAgent, err := New(mockClient)
 		assert.NoError(t, err)
 
-		// Register a working metrics reporter
-		reporter := func(ctx context.Context, service *agent.Service) ([]agent.MetricEntry, error) {
+		// Register a working typed metrics reporter using wrapper
+		reporter := func(ctx context.Context, service *agent.Service[TestProperties, TestResource]) ([]agent.MetricEntry, error) {
 			return []agent.MetricEntry{
 				{ExternalID: "test-ext", ResourceID: "test-res", Value: 100.0, TypeName: "cpu"},
 			}, nil
 		}
-		stdAgent.OnMetrics(reporter)
+		stdAgent.OnMetrics(agent.MetricsReporterWrapper(reporter))
 
 		// Mock service data
-		testService := &agent.Service{
+		testService := &agent.RawService{
 			ID:     "service-123",
 			Name:   "test-service",
 			Status: agent.ServiceStatusStarted,
 		}
 
 		// Mock the expected calls
-		mockClient.EXPECT().ListServices(mock.AnythingOfType("*agent.PaginationOptions")).Return(&agent.PageResponse[*agent.Service]{
-			Items:      []*agent.Service{testService},
+		mockClient.EXPECT().ListServices(mock.AnythingOfType("*agent.PaginationOptions")).Return(&agent.PageResponse[*agent.RawService]{
+			Items:      []*agent.RawService{testService},
 			TotalItems: 1,
 			TotalPages: 1,
 			PageSize:   50,
@@ -794,22 +816,22 @@ func TestAgent_CollectAndReportAllMetrics(t *testing.T) {
 		stdAgent, err := New(mockClient)
 		assert.NoError(t, err)
 
-		// Register a metrics reporter that returns an error
-		reporter := func(ctx context.Context, service *agent.Service) ([]agent.MetricEntry, error) {
+		// Register a typed metrics reporter that returns an error using wrapper
+		reporter := func(ctx context.Context, service *agent.Service[TestProperties, TestResource]) ([]agent.MetricEntry, error) {
 			return nil, assert.AnError
 		}
-		stdAgent.OnMetrics(reporter)
+		stdAgent.OnMetrics(agent.MetricsReporterWrapper(reporter))
 
 		// Mock service data
-		testService := &agent.Service{
+		testService := &agent.RawService{
 			ID:     "service-123",
 			Name:   "test-service",
 			Status: agent.ServiceStatusStarted,
 		}
 
 		// Mock the expected calls
-		mockClient.EXPECT().ListServices(mock.AnythingOfType("*agent.PaginationOptions")).Return(&agent.PageResponse[*agent.Service]{
-			Items:      []*agent.Service{testService},
+		mockClient.EXPECT().ListServices(mock.AnythingOfType("*agent.PaginationOptions")).Return(&agent.PageResponse[*agent.RawService]{
+			Items:      []*agent.RawService{testService},
 			TotalItems: 1,
 			TotalPages: 1,
 			PageSize:   50,

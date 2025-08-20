@@ -191,7 +191,7 @@ func (c *HTTPClient) ReportMetric(metric *agent.MetricEntry) error {
 }
 
 // ListServices retrieves services for this agent (filtered by API using agent token)
-func (c *HTTPClient) ListServices(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.Service], error) {
+func (c *HTTPClient) ListServices(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.RawService], error) {
 	request := c.client.R()
 
 	// Add pagination query parameters if provided
@@ -219,7 +219,7 @@ func (c *HTTPClient) ListServices(pagination *agent.PaginationOptions) (*agent.P
 	}
 
 	// The API returns a paginated response matching the PageResponse structure
-	var response agent.PageResponse[*agent.Service]
+	var response agent.PageResponse[*agent.RawService]
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		return nil, fmt.Errorf("failed to decode services response: %w", err)
 	}
