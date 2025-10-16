@@ -90,7 +90,7 @@ func TestAgent_OnJob(t *testing.T) {
 
 	handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 		return &agent.JobResponse[TestResource]{
-			Resources: &TestResource{ID: "test-id", URL: "http://test.com"},
+			AgentData: &TestResource{ID: "test-id", URL: "http://test.com"},
 		}, nil
 	}
 
@@ -107,7 +107,7 @@ func TestAgent_OnMetricsReport(t *testing.T) {
 	t.Run("with raw metrics reporter", func(t *testing.T) {
 		reporter := func(ctx context.Context, service *agent.RawService) ([]agent.MetricEntry, error) {
 			return []agent.MetricEntry{
-				{ExternalID: "test", ResourceID: "res-1", Value: 100.0, TypeName: "cpu"},
+				{AgentInstanceID: "test", ResourceID: "res-1", Value: 100.0, TypeName: "cpu"},
 			}, nil
 		}
 
@@ -120,7 +120,7 @@ func TestAgent_OnMetricsReport(t *testing.T) {
 		// Define a typed metrics reporter
 		reporter := func(ctx context.Context, service *agent.Service[TestProperties, TestResource]) ([]agent.MetricEntry, error) {
 			return []agent.MetricEntry{
-				{ExternalID: "test", ResourceID: "res-1", Value: 100.0, TypeName: "cpu"},
+				{AgentInstanceID: "test", ResourceID: "res-1", Value: 100.0, TypeName: "cpu"},
 			}, nil
 		}
 
@@ -478,8 +478,8 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		// Register a job handler
 		jobResponse := &agent.JobResponse[TestResource]{
-			Resources:  &TestResource{ID: "test-resource", URL: "http://test.com"},
-			ExternalID: stringPtr("ext-123"),
+			AgentData:       &TestResource{ID: "test-resource", URL: "http://test.com"},
+			AgentInstanceID: stringPtr("ext-123"),
 		}
 
 		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
@@ -780,7 +780,7 @@ func TestAgent_CollectAndReportAllMetrics(t *testing.T) {
 		// Register a working typed metrics reporter using wrapper
 		reporter := func(ctx context.Context, service *agent.Service[TestProperties, TestResource]) ([]agent.MetricEntry, error) {
 			return []agent.MetricEntry{
-				{ExternalID: "test-ext", ResourceID: "test-res", Value: 100.0, TypeName: "cpu"},
+				{AgentInstanceID: "test-ext", ResourceID: "test-res", Value: 100.0, TypeName: "cpu"},
 			}, nil
 		}
 		stdAgent.OnMetrics(agent.MetricsReporterWrapper(reporter))

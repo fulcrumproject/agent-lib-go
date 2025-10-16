@@ -389,10 +389,10 @@ func TestHTTPClient_ReportMetric(t *testing.T) {
 		{
 			name: "successful metric report with 200",
 			metric: &agent.MetricEntry{
-				ExternalID: "ext-123",
-				ResourceID: "res-456",
-				Value:      42.5,
-				TypeName:   "cpu_usage",
+				AgentInstanceID: "ext-123",
+				ResourceID:      "res-456",
+				Value:           42.5,
+				TypeName:        "cpu_usage",
 			},
 			mockStatusCode: http.StatusOK,
 			expectError:    false,
@@ -400,10 +400,10 @@ func TestHTTPClient_ReportMetric(t *testing.T) {
 		{
 			name: "successful metric report with 201",
 			metric: &agent.MetricEntry{
-				ExternalID: "ext-789",
-				ResourceID: "res-000",
-				Value:      15.2,
-				TypeName:   "memory_usage",
+				AgentInstanceID: "ext-789",
+				ResourceID:      "res-000",
+				Value:           15.2,
+				TypeName:        "memory_usage",
 			},
 			mockStatusCode: http.StatusCreated,
 			expectError:    false,
@@ -411,10 +411,10 @@ func TestHTTPClient_ReportMetric(t *testing.T) {
 		{
 			name: "server error",
 			metric: &agent.MetricEntry{
-				ExternalID: "ext-123",
-				ResourceID: "res-456",
-				Value:      42.5,
-				TypeName:   "cpu_usage",
+				AgentInstanceID: "ext-123",
+				ResourceID:      "res-456",
+				Value:           42.5,
+				TypeName:        "cpu_usage",
 			},
 			mockStatusCode: http.StatusInternalServerError,
 			expectError:    true,

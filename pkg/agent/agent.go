@@ -48,19 +48,19 @@ const (
 )
 
 type Service[P any, R any] struct {
-	ID            string        `json:"id"`
-	Name          string        `json:"name"`
-	Status        ServiceStatus `json:"status"`
-	Properties    *P            `json:"properties"`
-	Resources     *R            `json:"resources"`
-	ExternalID    *string       `json:"externalId"`
-	ProviderID    string        `json:"providerId"`
-	ConsumerID    string        `json:"consumerId"`
-	AgentID       string        `json:"agentId"`
-	ServiceTypeID string        `json:"serviceTypeId"`
-	GroupID       string        `json:"groupId"`
-	CreatedAt     time.Time     `json:"createdAt"`
-	UpdatedAt     time.Time     `json:"updatedAt"`
+	ID              string        `json:"id"`
+	Name            string        `json:"name"`
+	Status          ServiceStatus `json:"status"`
+	Properties      *P            `json:"properties"`
+	AgentData       *R            `json:"agentData"`
+	AgentInstanceID *string       `json:"agentInstanceId"`
+	ProviderID      string        `json:"providerId"`
+	ConsumerID      string        `json:"consumerId"`
+	AgentID         string        `json:"agentId"`
+	ServiceTypeID   string        `json:"serviceTypeId"`
+	GroupID         string        `json:"groupId"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	UpdatedAt       time.Time     `json:"updatedAt"`
 }
 
 // PaginationOptions represents options for paginated requests
@@ -84,10 +84,10 @@ type RawService Service[json.RawMessage, json.RawMessage]
 
 // MetricEntry represents a single metric measurement
 type MetricEntry struct {
-	ExternalID string  `json:"externalId"`
-	ResourceID string  `json:"resourceId"`
-	Value      float64 `json:"value"`
-	TypeName   string  `json:"typeName"`
+	AgentInstanceID string  `json:"agentInstanceId"`
+	ResourceID      string  `json:"resourceId"`
+	Value           float64 `json:"value"`
+	TypeName        string  `json:"typeName"`
 }
 
 // AgentInfo represents the agent information returned by the Fulcrum Core API
@@ -100,8 +100,8 @@ type AgentInfo[C any] struct {
 }
 
 type JobResponse[R any] struct {
-	Resources  *R      `json:"resources"`
-	ExternalID *string `json:"externalId"`
+	AgentData       *R      `json:"agentData"`
+	AgentInstanceID *string `json:"agentInstanceId"`
 }
 
 type RawJobResponse JobResponse[json.RawMessage]
@@ -192,18 +192,18 @@ func JobHandlerWrapper[JP any, SP any, R any](handler JobHandler[JP, SP, R]) Raw
 		}
 
 		// Convert the typed response back to raw JSON
-		var resourcesRaw json.RawMessage
-		if resp.Resources != nil {
-			resourcesBytes, err := json.Marshal(resp.Resources)
+		var agentDataRaw json.RawMessage
+		if resp.AgentData != nil {
+			agentDataBytes, err := json.Marshal(resp.AgentData)
 			if err != nil {
 				return nil, err
 			}
-			resourcesRaw = json.RawMessage(resourcesBytes)
+			agentDataRaw = json.RawMessage(agentDataBytes)
 		}
 
 		return &RawJobResponse{
-			Resources:  &resourcesRaw,
-			ExternalID: resp.ExternalID,
+			AgentData:       &agentDataRaw,
+			AgentInstanceID: resp.AgentInstanceID,
 		}, nil
 	}
 }
@@ -228,7 +228,7 @@ func unmarshalTypedService[P any, R any](rawService *Service[json.RawMessage, js
 	}
 
 	var properties P
-	var resources R
+	var agentData R
 
 	// Unmarshal properties if they exist
 	if rawService.Properties != nil {
@@ -237,26 +237,26 @@ func unmarshalTypedService[P any, R any](rawService *Service[json.RawMessage, js
 		}
 	}
 
-	// Unmarshal resources if they exist
-	if rawService.Resources != nil {
-		if err := json.Unmarshal(*rawService.Resources, &resources); err != nil {
+	// Unmarshal agentData if they exist
+	if rawService.AgentData != nil {
+		if err := json.Unmarshal(*rawService.AgentData, &agentData); err != nil {
 			return nil, err
 		}
 	}
 
 	return &Service[P, R]{
-		ID:            rawService.ID,
-		Name:          rawService.Name,
-		Status:        rawService.Status,
-		Properties:    &properties,
-		Resources:     &resources,
-		ExternalID:    rawService.ExternalID,
-		ProviderID:    rawService.ProviderID,
-		ConsumerID:    rawService.ConsumerID,
-		AgentID:       rawService.AgentID,
-		ServiceTypeID: rawService.ServiceTypeID,
-		GroupID:       rawService.GroupID,
-		CreatedAt:     rawService.CreatedAt,
-		UpdatedAt:     rawService.UpdatedAt,
+		ID:              rawService.ID,
+		Name:            rawService.Name,
+		Status:          rawService.Status,
+		Properties:      &properties,
+		AgentData:       &agentData,
+		AgentInstanceID: rawService.AgentInstanceID,
+		ProviderID:      rawService.ProviderID,
+		ConsumerID:      rawService.ConsumerID,
+		AgentID:         rawService.AgentID,
+		ServiceTypeID:   rawService.ServiceTypeID,
+		GroupID:         rawService.GroupID,
+		CreatedAt:       rawService.CreatedAt,
+		UpdatedAt:       rawService.UpdatedAt,
 	}, nil
 }
