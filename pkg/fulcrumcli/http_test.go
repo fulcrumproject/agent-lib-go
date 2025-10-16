@@ -147,7 +147,7 @@ func TestHTTPClient_GetPendingJobs(t *testing.T) {
 				return []*agent.RawJob{
 					{
 						ID:       "job-1",
-						Action:   agent.JobActionServiceCreate,
+						Action:   "create",
 						Status:   agent.JobStatusPending,
 						Priority: 1,
 						Params:   &params,

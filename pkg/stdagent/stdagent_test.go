@@ -3,6 +3,7 @@ package stdagent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -93,9 +94,9 @@ func TestAgent_OnJob(t *testing.T) {
 		}, nil
 	}
 
-	err = stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
+	err = stdAgent.OnJob("create", agent.JobHandlerWrapper(handler))
 	assert.NoError(t, err)
-	assert.Contains(t, stdAgent.jobHandlers, agent.JobActionServiceCreate)
+	assert.Contains(t, stdAgent.jobHandlers, "create")
 }
 
 func TestAgent_OnMetricsReport(t *testing.T) {
@@ -484,7 +485,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			return jobResponse, nil
 		}
-		stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
+		stdAgent.OnJob("create", agent.JobHandlerWrapper(handler))
 
 		// Mock job data - create RawJob with marshaled params
 		paramsBytes, _ := json.Marshal(&TestPayload{
@@ -495,7 +496,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		testJob := &agent.RawJob{
 			ID:       "job-123",
-			Action:   agent.JobActionServiceCreate,
+			Action:   "create",
 			Status:   agent.JobStatusPending,
 			Priority: 1,
 			Params:   &paramsRaw,
@@ -510,11 +511,10 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
+		processed, succeeded, failed := stdAgent.GetJobStats()
 		assert.Equal(t, 1, processed)
 		assert.Equal(t, 1, succeeded)
 		assert.Equal(t, 0, failed)
-		assert.Equal(t, 0, unsupported)
 	})
 
 	t.Run("handles job failure", func(t *testing.T) {
@@ -526,7 +526,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			return nil, assert.AnError
 		}
-		stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
+		stdAgent.OnJob("create", agent.JobHandlerWrapper(handler))
 
 		// Create RawJob with marshaled params
 		paramsBytes, _ := json.Marshal(&TestPayload{
@@ -537,7 +537,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		testJob := &agent.RawJob{
 			ID:       "job-123",
-			Action:   agent.JobActionServiceCreate,
+			Action:   "create",
 			Status:   agent.JobStatusPending,
 			Priority: 1,
 			Params:   &paramsRaw,
@@ -551,11 +551,10 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
+		processed, succeeded, failed := stdAgent.GetJobStats()
 		assert.Equal(t, 1, processed)
 		assert.Equal(t, 0, succeeded)
 		assert.Equal(t, 1, failed)
-		assert.Equal(t, 0, unsupported)
 	})
 
 	t.Run("no pending jobs", func(t *testing.T) {
@@ -569,7 +568,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, _, _, _ := stdAgent.GetJobStats()
+		processed, _, _ := stdAgent.GetJobStats()
 		assert.Equal(t, 0, processed)
 	})
 
@@ -587,24 +586,23 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		testJob := &agent.RawJob{
 			ID:       "job-123",
-			Action:   agent.JobActionServiceCreate, // No handler registered for this action
+			Action:   "create", // No handler registered for this action
 			Status:   agent.JobStatusPending,
 			Priority: 1,
 			Params:   &paramsRaw,
 		}
 
 		mockClient.EXPECT().GetPendingJobs().Return([]*agent.RawJob{testJob}, nil).Once()
-		mockClient.EXPECT().UnsupportedJob("job-123", "unsupported job action 'Create'").Return(nil).Once()
+		mockClient.EXPECT().FailJob("job-123", "unsupported job action 'create'").Return(nil).Once()
 
 		ctx := context.Background()
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
+		processed, succeeded, failed := stdAgent.GetJobStats()
 		assert.Equal(t, 1, processed) // Job is counted as processed even if no handler
 		assert.Equal(t, 0, succeeded)
-		assert.Equal(t, 0, failed)
-		assert.Equal(t, 1, unsupported) // Job is counted as unsupported
+		assert.Equal(t, 1, failed)
 	})
 
 	t.Run("handler returns unsupported job error", func(t *testing.T) {
@@ -614,9 +612,10 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		// Register a job handler that returns UnsupportedJobError
 		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
-			return nil, &agent.UnsupportedJobError{Msg: "unsupported property value"}
+			return nil, errors.New("unsupported property value")
 		}
-		err = stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
+		stdAgent.OnJob("create", agent.JobHandlerWrapper(handler))
+		err = stdAgent.OnJob("create", agent.JobHandlerWrapper(handler))
 		assert.NoError(t, err)
 
 		// Create RawJob with marshaled params
@@ -628,7 +627,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		testJob := &agent.RawJob{
 			ID:       "job-123",
-			Action:   agent.JobActionServiceCreate,
+			Action:   "create",
 			Status:   agent.JobStatusPending,
 			Priority: 1,
 			Params:   &paramsRaw,
@@ -636,17 +635,16 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		mockClient.EXPECT().GetPendingJobs().Return([]*agent.RawJob{testJob}, nil).Once()
 		mockClient.EXPECT().ClaimJob("job-123").Return(nil).Once()
-		mockClient.EXPECT().UnsupportedJob("job-123", "unsupported property value").Return(nil).Once()
+		mockClient.EXPECT().FailJob("job-123", "unsupported property value").Return(nil).Once()
 
 		ctx := context.Background()
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err)
 
-		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
+		processed, succeeded, failed := stdAgent.GetJobStats()
 		assert.Equal(t, 1, processed)
 		assert.Equal(t, 0, succeeded)
-		assert.Equal(t, 0, failed)
-		assert.Equal(t, 1, unsupported) // Job is counted as unsupported
+		assert.Equal(t, 1, failed)
 	})
 
 	t.Run("fails to get pending jobs", func(t *testing.T) {
@@ -670,7 +668,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			return &agent.JobResponse[TestResource]{}, nil
 		}
-		stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
+		stdAgent.OnJob("create", agent.JobHandlerWrapper(handler))
 
 		// Create RawJob with marshaled params
 		paramsBytes, _ := json.Marshal(&TestPayload{
@@ -681,7 +679,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		testJob := &agent.RawJob{
 			ID:       "job-123",
-			Action:   agent.JobActionServiceCreate,
+			Action:   "create",
 			Status:   agent.JobStatusPending,
 			Priority: 1,
 			Params:   &paramsRaw,
@@ -704,7 +702,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 			panic("test panic in job handler")
 		}
-		stdAgent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(handler))
+		stdAgent.OnJob("create", agent.JobHandlerWrapper(handler))
 
 		// Create RawJob with marshaled params
 		paramsBytes, _ := json.Marshal(&TestPayload{
@@ -715,7 +713,7 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		testJob := &agent.RawJob{
 			ID:       "job-123",
-			Action:   agent.JobActionServiceCreate,
+			Action:   "create",
 			Status:   agent.JobStatusPending,
 			Priority: 1,
 			Params:   &paramsRaw,
@@ -731,11 +729,10 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 		err = stdAgent.pollAndProcessJobs(ctx)
 		assert.NoError(t, err) // The method should not return an error, panic should be handled
 
-		processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
+		processed, succeeded, failed := stdAgent.GetJobStats()
 		assert.Equal(t, 1, processed)
 		assert.Equal(t, 0, succeeded)
 		assert.Equal(t, 1, failed) // Panic should be converted to a failed job
-		assert.Equal(t, 0, unsupported)
 	})
 }
 
@@ -864,11 +861,10 @@ func TestAgent_GetMethods(t *testing.T) {
 	stdAgent.jobStats.succeeded = 8
 	stdAgent.jobStats.failed = 2
 
-	processed, succeeded, failed, unsupported := stdAgent.GetJobStats()
+	processed, succeeded, failed := stdAgent.GetJobStats()
 	assert.Equal(t, 10, processed)
 	assert.Equal(t, 8, succeeded)
 	assert.Equal(t, 2, failed)
-	assert.Equal(t, 0, unsupported)
 }
 
 func TestAgent_IntegrationWithHealth(t *testing.T) {

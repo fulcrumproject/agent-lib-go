@@ -3,7 +3,6 @@ package stdagent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -25,16 +24,15 @@ type Agent struct {
 	healthbeatHandler     agent.HealthHandler
 	connectHandler        agent.RawConnectHandler
 	jobPollInterval       time.Duration
-	jobHandlers           map[agent.JobAction]agent.RawJobHandler
+	jobHandlers           map[string]agent.RawJobHandler
 	metricsReportInterval time.Duration
 	metricsReporter       agent.RawMetricsReporter
 
 	// Job statistics
 	jobStats struct {
-		processed   int
-		succeeded   int
-		failed      int
-		unsupported int
+		processed int
+		succeeded int
+		failed    int
 	}
 
 	// Runtime state
@@ -50,7 +48,7 @@ type Agent struct {
 func New(client FulcrumClient, options ...AgentOption) (*Agent, error) {
 	agent := &Agent{
 		client:                client,
-		jobHandlers:           make(map[agent.JobAction]agent.RawJobHandler),
+		jobHandlers:           make(map[string]agent.RawJobHandler),
 		healthInterval:        DefaultHealthInterval,
 		jobPollInterval:       DefaultJobPollInterval,
 		metricsReportInterval: DefaultMetricsReportInterval,
@@ -69,7 +67,7 @@ func New(client FulcrumClient, options ...AgentOption) (*Agent, error) {
 	return agent, nil
 }
 
-func (a *Agent) OnJob(action agent.JobAction, handler agent.RawJobHandler) error {
+func (a *Agent) OnJob(action string, handler agent.RawJobHandler) error {
 	a.jobHandlers[action] = handler
 	return nil
 }
@@ -390,18 +388,17 @@ func (a *Agent) pollAndProcessJobs(ctx context.Context) error {
 	// Check if we have a handler for this job action
 	handler, ok := a.jobHandlers[job.Action]
 	if !ok {
-		message := fmt.Sprintf("unsupported job action '%s'", job.Action)
-		unsupportedErr := &agent.UnsupportedJobError{Msg: message}
+		unsupportedErr := fmt.Errorf("unsupported job action '%s'", job.Action)
 		slog.Warn("No handler registered for job action", "action", job.Action, "job_id", job.ID)
 
 		// Mark job as unsupported
-		if err := a.client.UnsupportedJob(job.ID, unsupportedErr.Error()); err != nil {
+		if err := a.client.FailJob(job.ID, unsupportedErr.Error()); err != nil {
 			slog.Error("Failed to mark job as unsupported", "job_id", job.ID, "error", err)
 			return err
 		}
 
-		a.jobStats.unsupported++
-		slog.Info("Job marked as unsupported", "job_id", job.ID, "action", job.Action)
+		a.jobStats.failed++
+		slog.Info("Job failed because unsupported", "job_id", job.ID, "action", job.Action)
 		return nil
 	}
 
@@ -415,37 +412,25 @@ func (a *Agent) pollAndProcessJobs(ctx context.Context) error {
 
 	// Process the job using the registered handler with panic recovery
 	resp, err := a.executeJobHandlerWithPanicRecovery(ctx, job, handler)
+
 	if err != nil {
-		// Check if the error is an UnsupportedJobError
-		var unsupportedErr *agent.UnsupportedJobError
-		if errors.As(err, &unsupportedErr) {
-			// Mark job as unsupported
-			slog.Warn("Job handler returned unsupported error", "job_id", job.ID, "error", err)
-			a.jobStats.unsupported++
-			if unsuppErr := a.client.UnsupportedJob(job.ID, unsupportedErr.Error()); unsuppErr != nil {
-				slog.Error("Failed to mark job as unsupported", "job_id", job.ID, "error", unsuppErr)
-				return unsuppErr
-			}
-			slog.Info("Job marked as unsupported", "job_id", job.ID)
-		} else {
-			// Mark job as failed for other errors
-			slog.Error("Job failed", "job_id", job.ID, "error", err)
-			a.jobStats.failed++
-			if failErr := a.client.FailJob(job.ID, err.Error()); failErr != nil {
-				slog.Error("Failed to mark job as failed", "job_id", job.ID, "error", failErr)
-				return failErr
-			}
+		// Mark job as failed
+		slog.Error("Job failed", "job_id", job.ID, "error", err)
+		a.jobStats.failed++
+		if failErr := a.client.FailJob(job.ID, err.Error()); failErr != nil {
+			slog.Error("Failed to mark job as failed", "job_id", job.ID, "error", failErr)
+			return failErr
 		}
-	} else {
-		// Job succeeded
-		a.jobStats.succeeded++
-		if complErr := a.client.CompleteJob(job.ID, resp); complErr != nil {
-			slog.Error("Failed to mark job as completed", "job_id", job.ID, "error", complErr)
-			return complErr
-		}
-		slog.Info("Job completed successfully", "job_id", job.ID)
+		return nil
 	}
 
+	// Job succeeded
+	a.jobStats.succeeded++
+	if complErr := a.client.CompleteJob(job.ID, resp); complErr != nil {
+		slog.Error("Failed to mark job as completed", "job_id", job.ID, "error", complErr)
+		return complErr
+	}
+	slog.Info("Job completed successfully", "job_id", job.ID)
 	return nil
 }
 
@@ -492,8 +477,8 @@ func (a *Agent) GetUptime() time.Duration {
 }
 
 // GetJobStats returns the job processing statistics
-func (a *Agent) GetJobStats() (processed, succeeded, failed, unsupported int) {
-	return a.jobStats.processed, a.jobStats.succeeded, a.jobStats.failed, a.jobStats.unsupported
+func (a *Agent) GetJobStats() (processed, succeeded, failed int) {
+	return a.jobStats.processed, a.jobStats.succeeded, a.jobStats.failed
 }
 
 // GetStatus returns the current agent status

@@ -14,7 +14,6 @@ type FulcrumClient interface {
 	ClaimJob(jobID string) error
 	CompleteJob(jobID string, resources any) error
 	FailJob(jobID string, errorMessage string) error
-	UnsupportedJob(jobID string, errorMessage string) error
 	ReportMetric(metrics *agent.MetricEntry) error
 	ListServices(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.RawService], error)
 }

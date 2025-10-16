@@ -17,17 +17,6 @@ const (
 	AgentStatusDisabled     AgentStatus = "Disabled"
 )
 
-// JobAction represents the type of job
-type JobAction string
-
-const (
-	JobActionServiceCreate JobAction = "Create"
-	JobActionServiceStart  JobAction = "Start"
-	JobActionServiceStop   JobAction = "Stop"
-	JobActionServiceUpdate JobAction = "Update"
-	JobActionServiceDelete JobAction = "Delete"
-)
-
 // JobStatus represents the status of a job
 type JobStatus string
 
@@ -38,19 +27,10 @@ const (
 	JobStatusFailed     JobStatus = "Failed"
 )
 
-// UnsupportedJobError represents an error when a job cannot be supported by the agent
-type UnsupportedJobError struct {
-	Msg string
-}
-
-func (e *UnsupportedJobError) Error() string {
-	return e.Msg
-}
-
 // Job represents a job from the Fulcrum Core job queue
 type Job[P any, SP any, SR any] struct {
 	ID       string           `json:"id"`
-	Action   JobAction        `json:"action"`
+	Action   string           `json:"action"`
 	Status   JobStatus        `json:"status"`
 	Params   *P               `json:"params"`
 	Priority int              `json:"priority"`
@@ -157,7 +137,7 @@ type Agent interface {
 	Shutdown(ctx context.Context) error
 	OnConnect(handler RawConnectHandler) error
 	OnHealth(handler HealthHandler) error
-	OnJob(action JobAction, handler RawJobHandler) error
+	OnJob(action string, handler RawJobHandler) error
 	OnMetrics(handler RawMetricsReporter) error
 }
 

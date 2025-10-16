@@ -154,25 +154,6 @@ func (c *HTTPClient) FailJob(jobID string, errorMessage string) error {
 	return nil
 }
 
-// UnsupportedJob marks a job as unsupported by this agent
-func (c *HTTPClient) UnsupportedJob(jobID string, errorMessage string) error {
-	resp, err := c.client.R().
-		SetBody(map[string]any{
-			"errorMessage": errorMessage,
-		}).
-		Post(fmt.Sprintf("/api/v1/jobs/%s/unsupported", jobID))
-
-	if err != nil {
-		return fmt.Errorf("failed to mark job as unsupported: %w", err)
-	}
-
-	if resp.IsError() {
-		return fmt.Errorf("failed to mark job as unsupported, status: %d", resp.StatusCode())
-	}
-
-	return nil
-}
-
 // ReportMetric sends collected metrics to Fulcrum Core
 func (c *HTTPClient) ReportMetric(metric *agent.MetricEntry) error {
 	resp, err := c.client.R().
