@@ -52,7 +52,7 @@ func main() {
     }
 
     // Register job handler for Create action
-    ag.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(
+    ag.OnJob("create", agent.JobHandlerWrapper(
         func(ctx context.Context, job *agent.Job[MyJobParams, MyServiceProps, MyResources]) (*agent.JobResponse[MyResources], error) {
             // Handle job
             return &agent.JobResponse[MyResources]{
@@ -95,13 +95,13 @@ The `Agent` interface represents a Fulcrum agent that connects to Fulcrum Core a
 
 ### Jobs
 
-Jobs represent actions that need to be performed on services. The library supports the following job actions:
+Jobs represent actions that need to be performed on services. Job actions are identified by string values. Common job actions include:
 
-- `JobActionServiceCreate`: Create a new service
-- `JobActionServiceStart`: Start an existing service
-- `JobActionServiceStop`: Stop a running service
-- `JobActionServiceUpdate`: Update service configuration
-- `JobActionServiceDelete`: Delete a service
+- `"create"`: Create a new service
+- `"start"`: Start an existing service
+- `"stop"`: Stop a running service
+- `"update"`: Update service configuration
+- `"delete"`: Delete a service
 
 ### Services
 
@@ -174,7 +174,7 @@ Register handlers:
 
 ```go
 // Handler for creating VMs
-agent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(
+agent.OnJob("create", agent.JobHandlerWrapper(
     func(ctx context.Context, job *agent.Job[CreateVMParams, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
         // Access typed parameters
         imageID := job.Params.ImageID
@@ -199,7 +199,7 @@ agent.OnJob(agent.JobActionServiceCreate, agent.JobHandlerWrapper(
 ))
 
 // Handler for starting VMs
-agent.OnJob(agent.JobActionServiceStart, agent.JobHandlerWrapper(
+agent.OnJob("start", agent.JobHandlerWrapper(
     func(ctx context.Context, job *agent.Job[interface{}, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
         instanceID := job.Service.Resources.InstanceID
         
@@ -214,7 +214,7 @@ agent.OnJob(agent.JobActionServiceStart, agent.JobHandlerWrapper(
 ))
 
 // Handler for stopping VMs
-agent.OnJob(agent.JobActionServiceStop, agent.JobHandlerWrapper(
+agent.OnJob("stop", agent.JobHandlerWrapper(
     func(ctx context.Context, job *agent.Job[interface{}, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
         instanceID := job.Service.Resources.InstanceID
         
@@ -229,7 +229,7 @@ agent.OnJob(agent.JobActionServiceStop, agent.JobHandlerWrapper(
 ))
 
 // Handler for deleting VMs
-agent.OnJob(agent.JobActionServiceDelete, agent.JobHandlerWrapper(
+agent.OnJob("delete", agent.JobHandlerWrapper(
     func(ctx context.Context, job *agent.Job[interface{}, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
         instanceID := job.Service.Resources.InstanceID
         
@@ -244,21 +244,7 @@ agent.OnJob(agent.JobActionServiceDelete, agent.JobHandlerWrapper(
 ))
 ```
 
-### 3. Handling Unsupported Jobs
-
-If your agent doesn't support a particular job, return an `UnsupportedJobError`:
-
-```go
-agent.OnJob(agent.JobActionServiceUpdate, agent.JobHandlerWrapper(
-    func(ctx context.Context, job *agent.Job[interface{}, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
-        return nil, &agent.UnsupportedJobError{
-            Msg: "VM updates are not supported by this agent",
-        }
-    },
-))
-```
-
-### 4. Implementing Health Checks
+### 3. Implementing Health Checks
 
 ```go
 agent.OnHealth(func(ctx context.Context) error {
@@ -276,7 +262,7 @@ agent.OnHealth(func(ctx context.Context) error {
 })
 ```
 
-### 5. Reporting Metrics
+### 4. Reporting Metrics
 
 ```go
 agent.OnMetrics(agent.MetricsReporterWrapper(
@@ -312,7 +298,7 @@ agent.OnMetrics(agent.MetricsReporterWrapper(
 ))
 ```
 
-### 6. Handling Agent Configuration
+### 5. Handling Agent Configuration
 
 Use the `OnConnect` handler to receive and process agent configuration from Fulcrum Core:
 
@@ -342,7 +328,7 @@ agent.OnConnect(agent.ConnectHandlerWrapper(
 ))
 ```
 
-### 7. Running the Agent
+### 6. Running the Agent
 
 ```go
 ctx := context.Background()
@@ -419,25 +405,23 @@ Services can be in the following states:
 
 ## Error Handling
 
-### Unsupported Jobs
-
-When a job cannot be supported by your agent, return an `UnsupportedJobError`:
-
-```go
-return nil, &agent.UnsupportedJobError{
-    Msg: "This operation is not supported",
-}
-```
-
-### Failed Jobs
-
-For regular errors, return a normal error:
+When a job handler encounters an error, simply return a Go error. The agent will automatically mark the job as failed and report the error message to Fulcrum Core:
 
 ```go
 return nil, fmt.Errorf("failed to create VM: %w", err)
 ```
 
-The agent will automatically mark the job as failed and report the error message to Fulcrum Core.
+If your agent doesn't support a particular job action, you can either:
+- Not register a handler for that action (the agent will mark such jobs as failed automatically)
+- Register a handler that returns an error indicating the operation is unsupported:
+
+```go
+agent.OnJob("update", agent.JobHandlerWrapper(
+    func(ctx context.Context, job *agent.Job[interface{}, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
+        return nil, fmt.Errorf("VM updates are not supported by this agent")
+    },
+))
+```
 
 ## Advanced Features
 
@@ -483,7 +467,7 @@ type Agent interface {
     Shutdown(ctx context.Context) error
     OnConnect(handler RawConnectHandler) error
     OnHealth(handler HealthHandler) error
-    OnJob(action JobAction, handler RawJobHandler) error
+    OnJob(action string, handler RawJobHandler) error
     OnMetrics(handler RawMetricsReporter) error
 }
 ```
@@ -498,7 +482,6 @@ type FulcrumClient interface {
     ClaimJob(jobID string) error
     CompleteJob(jobID string, resources any) error
     FailJob(jobID string, errorMessage string) error
-    UnsupportedJob(jobID string, errorMessage string) error
     ReportMetric(metrics *MetricEntry) error
     ListServices(pagination *PaginationOptions) (*PageResponse[*RawService], error)
 }
