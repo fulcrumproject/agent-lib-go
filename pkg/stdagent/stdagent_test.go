@@ -90,7 +90,7 @@ func TestAgent_OnJob(t *testing.T) {
 
 	handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {
 		return &agent.JobResponse[TestResource]{
-			AgentData: &TestResource{ID: "test-id", URL: "http://test.com"},
+			AgentInstanceData: &TestResource{ID: "test-id", URL: "http://test.com"},
 		}, nil
 	}
 
@@ -478,8 +478,8 @@ func TestAgent_PollAndProcessJobs(t *testing.T) {
 
 		// Register a job handler
 		jobResponse := &agent.JobResponse[TestResource]{
-			AgentData:       &TestResource{ID: "test-resource", URL: "http://test.com"},
-			AgentInstanceID: stringPtr("ext-123"),
+			AgentInstanceData: &TestResource{ID: "test-resource", URL: "http://test.com"},
+			AgentInstanceID:   stringPtr("ext-123"),
 		}
 
 		handler := func(ctx context.Context, job *agent.Job[TestPayload, TestProperties, TestResource]) (*agent.JobResponse[TestResource], error) {

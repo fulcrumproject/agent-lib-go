@@ -57,7 +57,7 @@ func main() {
             // Handle job
             return &agent.JobResponse[MyResources]{
                 AgentInstanceID: stringPtr("instance-id-123"),
-                AgentData:       &MyResources{/* ... */},
+                AgentInstanceData:       &MyResources{/* ... */},
             }, nil
         },
     ))
@@ -108,7 +108,7 @@ Jobs represent actions that need to be performed on services. Job actions are id
 Services are the resources managed by the agent. Each service has:
 
 - **Properties**: Configuration parameters for the service
-- **AgentData**: Agent-managed operational data (IDs, endpoints, etc.)
+- **AgentInstanceData**: Agent-managed operational data (IDs, endpoints, etc.)
 - **Status**: Current state (New, Started, Stopped, Deleted)
 
 ### Type Safety
@@ -117,7 +117,7 @@ The library uses Go generics to provide type-safe handling of:
 
 - **Job Parameters (JP)**: Parameters specific to a job
 - **Service Properties (SP)**: Configuration for a service
-- **AgentData (R)**: Agent operational data returned after operations
+- **AgentInstanceData (R)**: Agent operational data returned after operations
 - **Configuration (C)**: Agent configuration from Fulcrum Core
 
 ## Detailed Usage
@@ -162,7 +162,7 @@ type VMProperties struct {
     Zone   string `json:"zone"`
 }
 
-// AgentData returned after creation
+// AgentInstanceData returned after creation
 type VMResources struct {
     InstanceID string `json:"instanceId"`
     PublicIP   string `json:"publicIp"`
@@ -189,7 +189,7 @@ agent.OnJob("create", agent.JobHandlerWrapper(
         // Return typed response
         return &agent.JobResponse[VMResources]{
             AgentInstanceID: &vm.ID,
-            AgentData: &VMResources{
+            AgentInstanceData: &VMResources{
                 InstanceID: vm.ID,
                 PublicIP:   vm.PublicIP,
                 PrivateIP:  vm.PrivateIP,
@@ -201,14 +201,14 @@ agent.OnJob("create", agent.JobHandlerWrapper(
 // Handler for starting VMs
 agent.OnJob("start", agent.JobHandlerWrapper(
     func(ctx context.Context, job *agent.Job[interface{}, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
-        instanceID := job.Service.AgentData.InstanceID
+        instanceID := job.Service.AgentInstanceData.InstanceID
         
         if err := cloudProvider.StartVM(ctx, instanceID); err != nil {
             return nil, err
         }
         
         return &agent.JobResponse[VMResources]{
-            AgentData: job.Service.AgentData,
+            AgentInstanceData: job.Service.AgentInstanceData,
         }, nil
     },
 ))
@@ -216,14 +216,14 @@ agent.OnJob("start", agent.JobHandlerWrapper(
 // Handler for stopping VMs
 agent.OnJob("stop", agent.JobHandlerWrapper(
     func(ctx context.Context, job *agent.Job[interface{}, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
-        instanceID := job.Service.AgentData.InstanceID
+        instanceID := job.Service.AgentInstanceData.InstanceID
         
         if err := cloudProvider.StopVM(ctx, instanceID); err != nil {
             return nil, err
         }
         
         return &agent.JobResponse[VMResources]{
-            AgentData: job.Service.AgentData,
+            AgentInstanceData: job.Service.AgentInstanceData,
         }, nil
     },
 ))
@@ -231,14 +231,14 @@ agent.OnJob("stop", agent.JobHandlerWrapper(
 // Handler for deleting VMs
 agent.OnJob("delete", agent.JobHandlerWrapper(
     func(ctx context.Context, job *agent.Job[interface{}, VMProperties, VMResources]) (*agent.JobResponse[VMResources], error) {
-        instanceID := job.Service.AgentData.InstanceID
+        instanceID := job.Service.AgentInstanceData.InstanceID
         
         if err := cloudProvider.DeleteVM(ctx, instanceID); err != nil {
             return nil, err
         }
         
         return &agent.JobResponse[VMResources]{
-            AgentData: job.Service.AgentData,
+            AgentInstanceData: job.Service.AgentInstanceData,
         }, nil
     },
 ))
@@ -267,7 +267,7 @@ agent.OnHealth(func(ctx context.Context) error {
 ```go
 agent.OnMetrics(agent.MetricsReporterWrapper(
     func(ctx context.Context, service *agent.Service[VMProperties, VMResources]) ([]agent.MetricEntry, error) {
-        instanceID := service.AgentData.InstanceID
+        instanceID := service.AgentInstanceData.InstanceID
         
         // Get metrics from cloud provider
         cpuUsage, err := cloudProvider.GetCPUUsage(ctx, instanceID)

@@ -48,19 +48,19 @@ const (
 )
 
 type Service[P any, R any] struct {
-	ID              string        `json:"id"`
-	Name            string        `json:"name"`
-	Status          ServiceStatus `json:"status"`
-	Properties      *P            `json:"properties"`
-	AgentData       *R            `json:"agentData"`
-	AgentInstanceID *string       `json:"agentInstanceId"`
-	ProviderID      string        `json:"providerId"`
-	ConsumerID      string        `json:"consumerId"`
-	AgentID         string        `json:"agentId"`
-	ServiceTypeID   string        `json:"serviceTypeId"`
-	GroupID         string        `json:"groupId"`
-	CreatedAt       time.Time     `json:"createdAt"`
-	UpdatedAt       time.Time     `json:"updatedAt"`
+	ID                string        `json:"id"`
+	Name              string        `json:"name"`
+	Status            ServiceStatus `json:"status"`
+	Properties        *P            `json:"properties"`
+	AgentInstanceData *R            `json:"agentInstanceData"`
+	AgentInstanceID   *string       `json:"agentInstanceId"`
+	ProviderID        string        `json:"providerId"`
+	ConsumerID        string        `json:"consumerId"`
+	AgentID           string        `json:"agentId"`
+	ServiceTypeID     string        `json:"serviceTypeId"`
+	GroupID           string        `json:"groupId"`
+	CreatedAt         time.Time     `json:"createdAt"`
+	UpdatedAt         time.Time     `json:"updatedAt"`
 }
 
 // PaginationOptions represents options for paginated requests
@@ -100,8 +100,8 @@ type AgentInfo[C any] struct {
 }
 
 type JobResponse[R any] struct {
-	AgentData       *R      `json:"agentData"`
-	AgentInstanceID *string `json:"agentInstanceId"`
+	AgentInstanceData *R      `json:"agentInstanceData"`
+	AgentInstanceID   *string `json:"agentInstanceId"`
 }
 
 type RawJobResponse JobResponse[json.RawMessage]
@@ -192,18 +192,18 @@ func JobHandlerWrapper[JP any, SP any, R any](handler JobHandler[JP, SP, R]) Raw
 		}
 
 		// Convert the typed response back to raw JSON
-		var agentDataRaw json.RawMessage
-		if resp.AgentData != nil {
-			agentDataBytes, err := json.Marshal(resp.AgentData)
+		var agentInstanceDataRaw json.RawMessage
+		if resp.AgentInstanceData != nil {
+			agentInstanceDataBytes, err := json.Marshal(resp.AgentInstanceData)
 			if err != nil {
 				return nil, err
 			}
-			agentDataRaw = json.RawMessage(agentDataBytes)
+			agentInstanceDataRaw = json.RawMessage(agentInstanceDataBytes)
 		}
 
 		return &RawJobResponse{
-			AgentData:       &agentDataRaw,
-			AgentInstanceID: resp.AgentInstanceID,
+			AgentInstanceData: &agentInstanceDataRaw,
+			AgentInstanceID:   resp.AgentInstanceID,
 		}, nil
 	}
 }
@@ -228,7 +228,7 @@ func unmarshalTypedService[P any, R any](rawService *Service[json.RawMessage, js
 	}
 
 	var properties P
-	var agentData R
+	var agentInstanceData R
 
 	// Unmarshal properties if they exist
 	if rawService.Properties != nil {
@@ -237,26 +237,26 @@ func unmarshalTypedService[P any, R any](rawService *Service[json.RawMessage, js
 		}
 	}
 
-	// Unmarshal agentData if they exist
-	if rawService.AgentData != nil {
-		if err := json.Unmarshal(*rawService.AgentData, &agentData); err != nil {
+	// Unmarshal agentInstanceData if they exist
+	if rawService.AgentInstanceData != nil {
+		if err := json.Unmarshal(*rawService.AgentInstanceData, &agentInstanceData); err != nil {
 			return nil, err
 		}
 	}
 
 	return &Service[P, R]{
-		ID:              rawService.ID,
-		Name:            rawService.Name,
-		Status:          rawService.Status,
-		Properties:      &properties,
-		AgentData:       &agentData,
-		AgentInstanceID: rawService.AgentInstanceID,
-		ProviderID:      rawService.ProviderID,
-		ConsumerID:      rawService.ConsumerID,
-		AgentID:         rawService.AgentID,
-		ServiceTypeID:   rawService.ServiceTypeID,
-		GroupID:         rawService.GroupID,
-		CreatedAt:       rawService.CreatedAt,
-		UpdatedAt:       rawService.UpdatedAt,
+		ID:                rawService.ID,
+		Name:              rawService.Name,
+		Status:            rawService.Status,
+		Properties:        &properties,
+		AgentInstanceData: &agentInstanceData,
+		AgentInstanceID:   rawService.AgentInstanceID,
+		ProviderID:        rawService.ProviderID,
+		ConsumerID:        rawService.ConsumerID,
+		AgentID:           rawService.AgentID,
+		ServiceTypeID:     rawService.ServiceTypeID,
+		GroupID:           rawService.GroupID,
+		CreatedAt:         rawService.CreatedAt,
+		UpdatedAt:         rawService.UpdatedAt,
 	}, nil
 }
