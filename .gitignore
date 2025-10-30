@@ -8,3 +8,4 @@ coverage.out
 ./testagent
 .cursor
 specs/
+temp/
