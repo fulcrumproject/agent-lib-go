@@ -82,4 +82,3 @@ func resolveSecrets(ctx context.Context, client FulcrumClient, data any, treatNo
 		return v, nil
 	}
 }
-
