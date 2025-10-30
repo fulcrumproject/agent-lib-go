@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fulcrumproject/agent-lib-go/pkg/agent"
+	"github.com/fulcrumproject/agent-lib-go/pkg/stdagent"
 	"resty.dev/v3"
 )
 
@@ -206,4 +207,40 @@ func (c *HTTPClient) ListServices(pagination *agent.PaginationOptions) (*agent.P
 	}
 
 	return &response, nil
+}
+
+// SecretResponse represents the response from the vault API
+type SecretResponse struct {
+	Value any `json:"value"`
+}
+
+// GetSecret retrieves a secret value from the vault
+// Returns the secret value on success, or ErrSecretNotFound if not found (404), or other error
+func (c *HTTPClient) GetSecret(reference string) (any, error) {
+	resp, err := c.client.R().
+		Get(fmt.Sprintf("/api/v1/vault/secrets/%s", reference))
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get secret: %w", err)
+	}
+
+	if resp.StatusCode() == 404 {
+		return nil, fmt.Errorf("%w", stdagent.ErrSecretNotFound)
+	}
+
+	if resp.IsError() {
+		return nil, fmt.Errorf("failed to get secret, status: %d", resp.StatusCode())
+	}
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	var secretResp SecretResponse
+	if err := json.Unmarshal(bodyBytes, &secretResp); err != nil {
+		return nil, fmt.Errorf("failed to decode secret response: %w", err)
+	}
+
+	return secretResp.Value, nil
 }

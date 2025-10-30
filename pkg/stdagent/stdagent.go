@@ -104,6 +104,14 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	slog.Info("Agent authenticated", "id", agentInfo.ID)
 
+	// Resolve secrets in agent configuration transparently
+	// Ephemeral secrets not found are set to nil
+	if agentInfo.Config != nil {
+		if err := resolveSecretsInJSON(ctx, a.client, agentInfo.Config, true); err != nil {
+			return fmt.Errorf("failed to resolve secrets in agent configuration: %w", err)
+		}
+	}
+
 	// If a connect handler is provided, use it to handle the agent info
 	if a.connectHandler != nil {
 		if agentInfo.Config != nil {
@@ -445,6 +453,14 @@ func (a *Agent) executeJobHandlerWithPanicRecovery(ctx context.Context, job *age
 			slog.Error("Job handler panic recovered", "job_id", job.ID, "panic", r)
 		}
 	}()
+
+	// Resolve secrets in job parameters transparently
+	// Ephemeral secrets not found are set to nil
+	if job.Params != nil {
+		if err := resolveSecretsInJSON(ctx, a.client, job.Params, true); err != nil {
+			return nil, fmt.Errorf("failed to resolve secrets in job parameters: %w", err)
+		}
+	}
 
 	// Execute the handler
 	return handler(ctx, job)

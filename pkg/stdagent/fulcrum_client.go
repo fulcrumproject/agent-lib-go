@@ -2,6 +2,7 @@ package stdagent
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/fulcrumproject/agent-lib-go/pkg/agent"
 )
@@ -16,4 +17,8 @@ type FulcrumClient interface {
 	FailJob(jobID string, errorMessage string) error
 	ReportMetric(metrics *agent.MetricEntry) error
 	ListServices(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.RawService], error)
+	GetSecret(reference string) (any, error) // Returns (value, nil) on success, (nil, ErrSecretNotFound) on 404, (nil, error) on other errors
 }
+
+// ErrSecretNotFound is returned when a secret is not found in the vault
+var ErrSecretNotFound = fmt.Errorf("secret not found")

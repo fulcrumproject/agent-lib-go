@@ -313,6 +313,68 @@ func (_c *MockFulcrumClient_GetPendingJobs_Call) RunAndReturn(run func() ([]*age
 	return _c
 }
 
+// GetSecret provides a mock function for the type MockFulcrumClient
+func (_mock *MockFulcrumClient) GetSecret(reference string) (any, error) {
+	ret := _mock.Called(reference)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetSecret")
+	}
+
+	var r0 any
+	var r1 error
+	if returnFunc, ok := ret.Get(0).(func(string) (any, error)); ok {
+		return returnFunc(reference)
+	}
+	if returnFunc, ok := ret.Get(0).(func(string) any); ok {
+		r0 = returnFunc(reference)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(any)
+		}
+	}
+	if returnFunc, ok := ret.Get(1).(func(string) error); ok {
+		r1 = returnFunc(reference)
+	} else {
+		r1 = ret.Error(1)
+	}
+	return r0, r1
+}
+
+// MockFulcrumClient_GetSecret_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSecret'
+type MockFulcrumClient_GetSecret_Call struct {
+	*mock.Call
+}
+
+// GetSecret is a helper method to define mock.On call
+//   - reference string
+func (_e *MockFulcrumClient_Expecter) GetSecret(reference interface{}) *MockFulcrumClient_GetSecret_Call {
+	return &MockFulcrumClient_GetSecret_Call{Call: _e.mock.On("GetSecret", reference)}
+}
+
+func (_c *MockFulcrumClient_GetSecret_Call) Run(run func(reference string)) *MockFulcrumClient_GetSecret_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 string
+		if args[0] != nil {
+			arg0 = args[0].(string)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *MockFulcrumClient_GetSecret_Call) Return(v any, err error) *MockFulcrumClient_GetSecret_Call {
+	_c.Call.Return(v, err)
+	return _c
+}
+
+func (_c *MockFulcrumClient_GetSecret_Call) RunAndReturn(run func(reference string) (any, error)) *MockFulcrumClient_GetSecret_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ListServices provides a mock function for the type MockFulcrumClient
 func (_mock *MockFulcrumClient) ListServices(pagination *agent.PaginationOptions) (*agent.PageResponse[*agent.RawService], error) {
 	ret := _mock.Called(pagination)
