@@ -2,6 +2,7 @@ package fulcrumcli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/fulcrumproject/agent-lib-go/pkg/agent"
+	"github.com/fulcrumproject/agent-lib-go/pkg/stdagent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -507,4 +509,114 @@ func TestNewHTTPClient(t *testing.T) {
 
 	// Verify that the client is properly configured
 	assert.Equal(t, baseURL, client.client.BaseURL())
+}
+
+func TestHTTPClient_GetSecret(t *testing.T) {
+	tests := []struct {
+		name           string
+		reference      string
+		mockStatusCode int
+		mockResponse   map[string]any
+		expectError    bool
+		expectNotFound bool
+		expectedValue  any
+	}{
+		{
+			name:           "successful secret retrieval - string value",
+			reference:      "abc123def456",
+			mockStatusCode: http.StatusOK,
+			mockResponse: map[string]any{
+				"value": "my-secret-password",
+			},
+			expectError:   false,
+			expectedValue: "my-secret-password",
+		},
+		{
+			name:           "successful secret retrieval - object value",
+			reference:      "xyz789",
+			mockStatusCode: http.StatusOK,
+			mockResponse: map[string]any{
+				"value": map[string]any{
+					"username": "admin",
+					"password": "secret123",
+				},
+			},
+			expectError: false,
+			expectedValue: map[string]any{
+				"username": "admin",
+				"password": "secret123",
+			},
+		},
+		{
+			name:           "successful secret retrieval - number value",
+			reference:      "num123",
+			mockStatusCode: http.StatusOK,
+			mockResponse: map[string]any{
+				"value": 12345,
+			},
+			expectError:   false,
+			expectedValue: float64(12345), // JSON unmarshals numbers as float64
+		},
+		{
+			name:           "secret not found",
+			reference:      "nonexistent",
+			mockStatusCode: http.StatusNotFound,
+			mockResponse: map[string]any{
+				"status":  "Not found",
+				"message": "Secret with reference 'nonexistent' not found",
+			},
+			expectError:    true,
+			expectNotFound: true,
+		},
+		{
+			name:           "server error",
+			reference:      "error123",
+			mockStatusCode: http.StatusInternalServerError,
+			mockResponse:   nil,
+			expectError:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Verify request method and URL
+				assert.Equal(t, http.MethodGet, r.Method)
+				expectedPath := fmt.Sprintf("/api/v1/vault/secrets/%s", tt.reference)
+				assert.Equal(t, expectedPath, r.URL.Path)
+				assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+
+				w.WriteHeader(tt.mockStatusCode)
+				if tt.mockResponse != nil {
+					json.NewEncoder(w).Encode(tt.mockResponse)
+				}
+			}))
+			defer server.Close()
+
+			client := NewHTTPClient(server.URL, "test-token")
+			result, err := client.GetSecret(tt.reference)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				if tt.expectNotFound {
+					// Verify it's ErrSecretNotFound using errors.Is
+					assert.True(t, errors.Is(err, stdagent.ErrSecretNotFound), "error should wrap ErrSecretNotFound")
+				}
+			} else {
+				assert.NoError(t, err)
+				if tt.expectedValue != nil {
+					// For object values, do a deep comparison
+					if expectedMap, ok := tt.expectedValue.(map[string]any); ok {
+						if resultMap, ok := result.(map[string]any); ok {
+							assert.Equal(t, expectedMap, resultMap)
+						} else {
+							t.Errorf("expected map but got %T", result)
+						}
+					} else {
+						assert.Equal(t, tt.expectedValue, result)
+					}
+				}
+			}
+		})
+	}
 }
