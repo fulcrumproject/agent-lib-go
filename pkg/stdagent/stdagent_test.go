@@ -381,15 +381,44 @@ func TestAgent_Run(t *testing.T) {
 
 	t.Run("fails when GetAgentInfo returns error", func(t *testing.T) {
 		mockClient := NewMockFulcrumClient(t)
-		stdAgent, err := New(mockClient)
+		stdAgent, err := New(mockClient, WithConnectRetryInterval(100*time.Millisecond))
 		assert.NoError(t, err)
 
+		// Mock will return error multiple times as agent retries
+		mockClient.EXPECT().GetAgentInfo().Return(nil, assert.AnError).Maybe()
+
+		// Use a context with timeout to cancel the retry loop
+		ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer cancel()
+
+		err = stdAgent.Run(ctx)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "context cancelled while waiting to retry connection")
+	})
+
+	t.Run("retries connection and succeeds after initial failures", func(t *testing.T) {
+		mockClient := NewMockFulcrumClient(t)
+		stdAgent, err := New(mockClient, WithConnectRetryInterval(100*time.Millisecond))
+		assert.NoError(t, err)
+
+		expectedInfo := &agent.AgentInfo[json.RawMessage]{
+			ID:   "test-agent-123",
+			Name: "test-agent",
+		}
+
+		// First two calls fail, third succeeds
 		mockClient.EXPECT().GetAgentInfo().Return(nil, assert.AnError).Once()
+		mockClient.EXPECT().GetAgentInfo().Return(nil, assert.AnError).Once()
+		mockClient.EXPECT().GetAgentInfo().Return(expectedInfo, nil).Once()
+
+		// Expect successful connection status update
+		mockClient.EXPECT().UpdateAgentStatus(agent.AgentStatusConnected).Return(nil).Once()
 
 		ctx := context.Background()
 		err = stdAgent.Run(ctx)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to get agent information")
+		assert.NoError(t, err)
+		assert.Equal(t, "test-agent-123", stdAgent.GetAgentID())
+		assert.Equal(t, agent.AgentStatusConnected, stdAgent.GetStatus())
 	})
 
 	t.Run("fails when agent info is invalid", func(t *testing.T) {

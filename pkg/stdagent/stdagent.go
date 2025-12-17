@@ -27,6 +27,7 @@ type Agent struct {
 	jobHandlers           map[string]agent.RawJobHandler
 	metricsReportInterval time.Duration
 	metricsReporter       agent.RawMetricsReporter
+	connectRetryInterval  time.Duration
 
 	// Job statistics
 	jobStats struct {
@@ -52,6 +53,7 @@ func New(client FulcrumClient, options ...AgentOption) (*Agent, error) {
 		healthInterval:        DefaultHealthInterval,
 		jobPollInterval:       DefaultJobPollInterval,
 		metricsReportInterval: DefaultMetricsReportInterval,
+		connectRetryInterval:  10 * time.Second,
 		stopCh:                make(chan struct{}),
 		jobPollStopCh:         make(chan struct{}),
 		status:                agent.AgentStatusNew,
@@ -90,10 +92,31 @@ func (a *Agent) OnConnect(handler agent.RawConnectHandler) error {
 func (a *Agent) Run(ctx context.Context) error {
 	a.startTime = time.Now()
 
-	// Get agent information to verify the token is valid
-	agentInfo, err := a.client.GetAgentInfo()
-	if err != nil {
-		return fmt.Errorf("failed to get agent information: %w", err)
+	// Get agent information to verify the token is valid, with retries
+	var agentInfo *agent.AgentInfo[json.RawMessage]
+	var err error
+
+	attempt := 0
+	for {
+		agentInfo, err = a.client.GetAgentInfo()
+		if err == nil {
+			// Success! Break out of retry loop
+			break
+		}
+
+		attempt++
+		slog.Error("Failed to get agent information, will retry",
+			"error", err,
+			"attempt", attempt,
+			"retry_interval", a.connectRetryInterval)
+
+		// Wait before retry
+		select {
+		case <-time.After(a.connectRetryInterval):
+			// Continue to retry
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting to retry connection (after %d attempts): %w", attempt, ctx.Err())
+		}
 	}
 
 	// Extract agent ID from the response
