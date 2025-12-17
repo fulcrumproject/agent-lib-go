@@ -36,3 +36,13 @@ func WithMetricsReportInterval(interval time.Duration) AgentOption {
 		return nil
 	}
 }
+
+func WithConnectRetryInterval(interval time.Duration) AgentOption {
+	return func(a *Agent) error {
+		if interval <= 0 {
+			return fmt.Errorf("connect retry interval must be greater than 0")
+		}
+		a.connectRetryInterval = interval
+		return nil
+	}
+}
